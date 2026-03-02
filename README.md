@@ -1,4 +1,4 @@
-# Soccer Annotation Tool
+# Football Annotation Tool
 
 A keyboard-driven PyQt6 desktop application for annotating soccer broadcast frames. Generates **RT-DETR training data** (COCO JSON + renamed frames) and **BoT-SORT Re-ID crops** (per-player cropped images) for player tracking. Works with **any team** and **any league** -- just load your own roster CSV and select the competition.
 
