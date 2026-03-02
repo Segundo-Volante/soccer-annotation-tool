@@ -5,8 +5,13 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QFileDialog, QButtonGroup, QRadioButton, QGroupBox, QGridLayout,
-    QFrame,
+    QFrame, QSlider,
 )
+
+try:
+    from backend.model_manager import AI_AVAILABLE
+except ImportError:
+    AI_AVAILABLE = False
 
 from backend.i18n import I18n, t
 
@@ -200,6 +205,100 @@ class SessionDialog(QDialog):
         sep2.setStyleSheet("color: #404060;")
         layout.addWidget(sep2)
 
+        # ── Annotation Mode ──
+        self._mode_label = QLabel(t("session.annotation_mode_label"))
+        self._mode_label.setStyleSheet("color: #8888A0; font-size: 11px; font-weight: bold;")
+        layout.addWidget(self._mode_label)
+
+        mode_row = QHBoxLayout()
+        self._mode_group = QButtonGroup(self)
+        self._manual_radio = QRadioButton(t("session.mode_manual"))
+        self._manual_radio.setChecked(True)
+        self._ai_radio = QRadioButton(t("session.mode_ai_assisted"))
+        if not AI_AVAILABLE:
+            self._ai_radio.setEnabled(False)
+            self._ai_radio.setToolTip(t("session.ai_unavailable_tooltip"))
+        self._mode_group.addButton(self._manual_radio, 0)
+        self._mode_group.addButton(self._ai_radio, 1)
+        mode_row.addWidget(self._manual_radio)
+        mode_row.addWidget(self._ai_radio)
+        layout.addLayout(mode_row)
+
+        # Model selection
+        model_row = QHBoxLayout()
+        self._model_label = QLabel(t("session.model_label"))
+        model_row.addWidget(self._model_label)
+        self._model_combo = QComboBox()
+        self._model_items = [
+            # (display_name, model_key, group)
+            ("Football — RF-DETR-n  (fast)", "football-rfdetr-n", "football"),
+            ("Football — RF-DETR-s  (balanced)", "football-rfdetr-s", "football"),
+            ("Football — RF-DETR-m  (accurate)", "football-rfdetr-m", "football"),
+            ("Football — YOLO11n  (fast)", "football-yolo11n", "football"),
+            ("Football — YOLO11s  (balanced)", "football-yolo11s", "football"),
+            ("Football — YOLO11m  (accurate)", "football-yolo11m", "football"),
+            ("COCO — YOLOv8n  (fast, 80 classes)", "yolov8n", "coco"),
+            ("COCO — YOLOv8s  (balanced, 80 classes)", "yolov8s", "coco"),
+            ("COCO — YOLOv8m  (accurate, 80 classes)", "yolov8m", "coco"),
+            ("Custom model...", "custom", "custom"),
+        ]
+        for display, _key, _group in self._model_items:
+            self._model_combo.addItem(display)
+        # Default: Football — YOLO11s (index 4)
+        self._model_combo.setCurrentIndex(4)
+        self._model_combo.setEnabled(False)
+        self._model_combo.currentIndexChanged.connect(self._on_model_changed)
+        model_row.addWidget(self._model_combo, stretch=1)
+        layout.addLayout(model_row)
+
+        # Model description line
+        self._model_desc = QLabel(t("session.model_desc_football"))
+        self._model_desc.setStyleSheet("color: #6A6A8A; font-size: 10px; padding-left: 4px;")
+        self._model_desc.setWordWrap(True)
+        self._model_desc.setVisible(False)
+        layout.addWidget(self._model_desc)
+
+        # Custom model file picker (hidden by default)
+        custom_row = QHBoxLayout()
+        self._custom_model_input = QLineEdit()
+        self._custom_model_input.setPlaceholderText(t("session.custom_model_placeholder"))
+        self._custom_model_input.setReadOnly(True)
+        self._custom_model_input.setVisible(False)
+        custom_row.addWidget(self._custom_model_input, stretch=1)
+        self._browse_model_btn = QPushButton(t("button.browse"))
+        self._browse_model_btn.setVisible(False)
+        self._browse_model_btn.clicked.connect(self._browse_custom_model)
+        custom_row.addWidget(self._browse_model_btn)
+        layout.addLayout(custom_row)
+
+        # Confidence slider
+        conf_row = QHBoxLayout()
+        self._conf_label = QLabel(t("session.confidence_label"))
+        conf_row.addWidget(self._conf_label)
+        self._conf_slider = QSlider(Qt.Orientation.Horizontal)
+        self._conf_slider.setRange(10, 90)
+        self._conf_slider.setValue(30)
+        self._conf_slider.setEnabled(False)
+        self._conf_slider.setFixedWidth(200)
+        self._conf_value_label = QLabel("0.30")
+        self._conf_value_label.setFixedWidth(35)
+        self._conf_slider.valueChanged.connect(
+            lambda v: self._conf_value_label.setText(f"{v / 100:.2f}")
+        )
+        conf_row.addWidget(self._conf_slider)
+        conf_row.addWidget(self._conf_value_label)
+        conf_row.addStretch()
+        layout.addLayout(conf_row)
+
+        # Connect mode toggle
+        self._mode_group.idToggled.connect(self._on_mode_toggled)
+
+        # Separator before session defaults
+        sep3 = QFrame()
+        sep3.setFrameShape(QFrame.Shape.HLine)
+        sep3.setStyleSheet("color: #404060;")
+        layout.addWidget(sep3)
+
         self._defaults_label = QLabel(t("session.defaults_label"))
         self._defaults_label.setStyleSheet("color: #8888A0; font-size: 11px; font-weight: bold;")
         layout.addWidget(self._defaults_label)
@@ -304,6 +403,17 @@ class SessionDialog(QDialog):
         self._opponent_label.setText(t("session.opponent_label"))
         self._opponent_combo.lineEdit().setPlaceholderText(t("session.opponent_placeholder"))
         self._defaults_label.setText(t("session.defaults_label"))
+        self._mode_label.setText(t("session.annotation_mode_label"))
+        self._manual_radio.setText(t("session.mode_manual"))
+        self._ai_radio.setText(t("session.mode_ai_assisted"))
+        if not AI_AVAILABLE:
+            self._ai_radio.setToolTip(t("session.ai_unavailable_tooltip"))
+        self._model_label.setText(t("session.model_label"))
+        self._conf_label.setText(t("session.confidence_label"))
+        self._custom_model_input.setPlaceholderText(t("session.custom_model_placeholder"))
+        # Update model description if visible
+        if self._model_desc.isVisible():
+            self._on_model_changed(self._model_combo.currentIndex())
         self._start_btn.setText(t("button.start_annotating"))
 
         # Update session-level radio group labels and option text
@@ -320,6 +430,39 @@ class SessionDialog(QDialog):
         # Save language preference to project config
         if self._project_config and self._project_config.exists:
             self._project_config.set_language(lang_code)
+
+    # ── Annotation Mode ──
+
+    def _on_mode_toggled(self, id: int, checked: bool):
+        ai_mode = self._ai_radio.isChecked()
+        self._model_combo.setEnabled(ai_mode)
+        self._conf_slider.setEnabled(ai_mode)
+        self._model_desc.setVisible(ai_mode)
+        if ai_mode:
+            self._on_model_changed(self._model_combo.currentIndex())
+
+    def _on_model_changed(self, index: int):
+        if index < 0 or index >= len(self._model_items):
+            return
+        _display, _key, group = self._model_items[index]
+        is_custom = (group == "custom")
+        self._custom_model_input.setVisible(is_custom)
+        self._browse_model_btn.setVisible(is_custom)
+        # Update description
+        if group == "football":
+            self._model_desc.setText(t("session.model_desc_football"))
+        elif group == "coco":
+            self._model_desc.setText(t("session.model_desc_coco"))
+        else:
+            self._model_desc.setText(t("session.model_desc_custom"))
+
+    def _browse_custom_model(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, t("dialog.select_model"), "",
+            "PyTorch Models (*.pt);;All Files (*)",
+        )
+        if path:
+            self._custom_model_input.setText(path)
 
     # ── File browsing ──
 
@@ -372,6 +515,22 @@ class SessionDialog(QDialog):
             "opponent": self._opponent_combo.currentText().strip(),
             "language": self._selected_lang,
         }
+        # AI-Assisted mode settings
+        if self._ai_radio.isChecked():
+            model_idx = self._model_combo.currentIndex()
+            _display, model_key, _group = self._model_items[model_idx]
+            self._result["annotation_mode"] = "ai_assisted"
+            if model_key == "custom":
+                self._result["model_name"] = "custom"
+                self._result["custom_model_path"] = self._custom_model_input.text()
+            else:
+                self._result["model_name"] = model_key
+            self._result["model_confidence"] = self._conf_slider.value() / 100.0
+        else:
+            self._result["annotation_mode"] = "manual"
+            self._result["model_name"] = ""
+            self._result["model_confidence"] = 0.30
+
         # Collect session-level values from dynamic radio groups
         defaults = {"weather": "clear", "lighting": "floodlight"}
         for key, group in self._session_groups.items():

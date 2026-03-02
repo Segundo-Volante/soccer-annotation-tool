@@ -167,5 +167,30 @@
   "meta.opt.penalty_area": "Strafraum",
   "meta.opt.clean": "Sauber",
   "meta.opt.motion_blur": "Bewegungsunschärfe",
-  "meta.opt.overlay_heavy": "Overlay-schwer"
+  "meta.opt.overlay_heavy": "Overlay-schwer",
+
+  "session.annotation_mode_label": "Annotationsmodus",
+  "session.mode_manual": "Manuell",
+  "session.mode_ai_assisted": "KI-gestützt",
+  "session.ai_unavailable_tooltip": "Installiere ultralytics für KI-Modus",
+  "session.model_label": "Erkennungsmodell",
+  "session.confidence_label": "Konfidenzschwelle",
+  "session.custom_model_placeholder": "Benutzerdefinierte .pt-Datei auswählen...",
+  "session.model_desc_football": "Fußball-Modell trainiert für Spieler, Torwart, Schiedsrichter und Ball.",
+  "session.model_desc_coco": "Allgemeines Modell (COCO). Erkennt Personen und Sportball.",
+  "session.model_desc_custom": "Benutzerdefiniertes Modell. Alle Erkennungen werden als ausstehend markiert.",
+  "dialog.select_model": "Modelldatei auswählen",
+
+  "ai.detection_complete": "{count} Objekte erkannt — {pending} ausstehend",
+  "ai.pending_counter": "{total} erkannt — {pending} ausstehend, {assigned} zugewiesen",
+  "ai.box_assigned": "Kategorie zugewiesen",
+  "ai.pending_blocks_export": "{count} ausstehende Kästchen — alle zuweisen vor dem Export",
+  "ai.bulk_assigned": "{count} Kästchen zugewiesen als {category}",
+  "ai.accept_all_title": "Alle Ausstehenden akzeptieren",
+  "ai.accept_all_message": "Alle {count} ausstehenden Kästchen als Gegner zuweisen?",
+  "ai.redetect": "Neu erkennen",
+  "ai.status_bar": "Modell: {model} | Konf: {conf}",
+
+  "help.bulk_assign": "Massenweise ausstehende zuweisen",
+  "help.accept_all": "Alle als Gegner akzeptieren"
 }

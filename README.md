@@ -22,7 +22,8 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 - **Real-time persistence** -- SQLite database with WAL mode saves every action; resume any session by reopening its folder
 - **COCO JSON export** -- Per-frame annotations, combined dataset, cropped player images, and summary statistics
 - **Dynamic metadata storage** -- Frame metadata stored as JSON blob in SQLite with `in_filename` flag controlling export naming
-- **56 passing tests** covering models, database, file manager, exporter, project config, and i18n
+- **AI-assisted annotation mode** -- Optional YOLO/RT-DETR object detection auto-detects players and ball; review, correct, and assign identities in seconds
+- **73 passing tests** covering models, database, file manager, exporter, project config, i18n, and AI features
 
 ## Quick Start
 
@@ -37,6 +38,9 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 git clone https://github.com/Segundo-Volante/football-annotation-tool.git
 cd football-annotation-tool
 pip install -r requirements.txt
+
+# Optional: enable AI-assisted annotation mode
+pip install -r requirements-ai.txt
 ```
 
 ### Run
@@ -115,6 +119,62 @@ Metadata **carries over** automatically between consecutive frames -- only chang
 
 Once all boxes are drawn and metadata is set, press **Enter** to export the frame or **Esc** to skip it.
 
+### AI-Assisted Mode (Optional)
+
+When `requirements-ai.txt` is installed, the session dialog offers an **AI-Assisted** annotation mode. Instead of drawing every bounding box manually, an object detection model auto-detects players, goalkeepers, referees, and the ball on each frame. You then review, resize, and assign identities -- reducing per-frame annotation time from ~30-60s to ~5-10s.
+
+#### Installation
+
+```bash
+# Install AI dependencies (PyTorch, ultralytics, etc.)
+pip install -r requirements-ai.txt
+```
+
+> See **[models.txt](models.txt)** for a detailed guide on available models, pre-downloading weights, and choosing the right model for your use case.
+
+#### Setup
+
+1. Launch the app with `python main.py`
+2. In the session dialog, select **AI-Assisted** for Annotation Mode
+3. Choose a detection model from the dropdown (see model tiers below)
+4. Set a confidence threshold (default 0.30 -- lower = more detections, higher = fewer but more accurate)
+5. Click OK to start the session
+
+#### Available Models (3 tiers)
+
+| Tier | Models | Classes | Download | Notes |
+|------|--------|---------|----------|-------|
+| **Football-specific** | RF-DETR (n/s/m), YOLO11 (n/s/m) | player, goalkeeper, referee, ball | From Roboflow (requires API key) | Best accuracy; auto-assigns referees and balls |
+| **COCO generic** | YOLOv8 Nano / Small / Medium | person, sports ball | Auto-downloaded via ultralytics | No API key needed; all persons detected as pending |
+| **Custom** | Any `.pt` file | Depends on model | User-provided | For custom-trained models |
+
+**Football models** require a free [Roboflow API key](https://app.roboflow.com/settings/api). Set it as an environment variable before launching:
+
+```bash
+export ROBOFLOW_API_KEY="your_key_here"
+python main.py
+```
+
+**COCO models** work out of the box -- no API key needed. Model weights are auto-downloaded on first use (~6-50 MB depending on size). See [models.txt](models.txt) for instructions on pre-downloading.
+
+#### Workflow
+
+1. **Navigate to a frame** -- AI detections appear automatically as **amber dashed boxes** labeled with class and confidence (e.g. "? person (0.92)"). A progress overlay shows the model name and elapsed time during detection.
+2. **Review detections** -- Click any amber box to select it. **Drag corners** to resize, or **drag the center** to move it. Delete incorrect detections with `Delete`.
+3. **Assign categories** -- Click a pending box and press **1-6** to assign it a category. For home players, the roster popup appears automatically for jersey number entry.
+4. **Bulk assign** -- Use **Ctrl+1-6** to assign all pending boxes to a category at once. With football models, **Ctrl+2** (Opponent) skips goalkeeper-detected boxes.
+5. **Accept all** -- Use **Ctrl+A** to accept all remaining pending boxes as Opponent (with confirmation dialog).
+6. **Auto-assigned classes** -- Football models automatically assign referees (key 5) and balls (key 6). Only player/goalkeeper boxes need manual assignment.
+7. **Export** -- Press **Enter** to export. Export is blocked while pending (unassigned) boxes remain.
+8. **Re-detect** -- Click **Re-detect** in the AI status bar to clear pending boxes and re-run detection on the current frame.
+
+#### Performance Notes
+
+- **First frame is slower** (~5-20s) because the model loads into memory. Subsequent frames are much faster (~0.5-3s).
+- Detection runs in a **background thread** -- the UI stays responsive with a progress overlay.
+- On Apple Silicon Macs running x86 Python (Rosetta 2), model loading may take longer. For best performance, use an ARM-native Python installation.
+- **Nano** models are fastest, **Medium** models are most accurate. Start with Nano for large batches.
+
 ---
 
 ## Keyboard Shortcuts
@@ -124,6 +184,7 @@ Once all boxes are drawn and metadata is set, press **Enter** to export the fram
 | `Tab` / `Shift+Tab` | Cycle metadata dimension |
 | `1-9` (no pending box) | Select metadata option |
 | `1-6` (pending box) | Assign box category |
+| `1-6` (AI pending selected) | Assign category to AI box |
 | `F` / `G` / `H` | Occlusion: visible / partial / heavy |
 | `T` | Toggle truncated |
 | `Enter` | Export frame + advance |
@@ -132,6 +193,8 @@ Once all boxes are drawn and metadata is set, press **Enter** to export the fram
 | `Ctrl+Z` | Undo last box |
 | `Delete` | Delete selected box |
 | `Ctrl+S` | Force save |
+| `Ctrl+1-6` | Bulk assign all pending as category (AI mode) |
+| `Ctrl+A` | Accept all pending as Opponent (AI mode) |
 
 ## Categories
 
@@ -183,6 +246,7 @@ football-annotation-tool/
 │   ├── database.py         # SQLite manager with WAL mode + JSON metadata
 │   ├── exporter.py         # COCO JSON + crop export with dynamic naming
 │   ├── file_manager.py     # Image I/O and folder scanning
+│   ├── model_manager.py    # AI model manager (YOLO/RT-DETR, optional)
 │   ├── roster_manager.py   # CSV roster loader + player lookup
 │   ├── project_config.py   # Project configuration loader (project.json)
 │   └── i18n.py             # JSON-based internationalization
@@ -213,12 +277,14 @@ football-annotation-tool/
 │       ├── it.json             # Italian
 │       ├── de.json             # German
 │       ├── pt.json             # Portuguese
-│       └── fr.json             # French
+│       ├── fr.json             # French
+│       └── es.json             # Spanish
 ├── screenshots/            # App screenshots for documentation
-├── tests/                  # 56 tests (pytest)
+├── tests/                  # 73 tests (pytest)
 ├── TUTORIAL.md             # Full usage guide
 ├── TUTORIAL.pdf            # PDF version of the tutorial
-└── requirements.txt
+├── requirements.txt        # Base dependencies (PyQt6, OpenCV)
+└── requirements-ai.txt     # Optional AI dependencies (ultralytics, torch)
 ```
 
 ## Configuration

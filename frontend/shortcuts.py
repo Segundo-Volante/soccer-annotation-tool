@@ -35,6 +35,10 @@ class ShortcutHandler(QObject):
     delete_box = pyqtSignal()            # Delete
     force_save = pyqtSignal()            # Ctrl+S
 
+    # AI-Assisted bulk operations
+    bulk_assign = pyqtSignal(int)        # Ctrl+1 through Ctrl+6
+    accept_all = pyqtSignal()            # Ctrl+A
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._popup_open = False
@@ -59,6 +63,21 @@ class ShortcutHandler(QObject):
             self.force_save.emit()
             return True
 
+        # Ctrl+Number → bulk assign (AI-assisted mode)
+        number_keys = {
+            Qt.Key.Key_1: 1, Qt.Key.Key_2: 2, Qt.Key.Key_3: 3,
+            Qt.Key.Key_4: 4, Qt.Key.Key_5: 5, Qt.Key.Key_6: 6,
+            Qt.Key.Key_7: 7, Qt.Key.Key_8: 8, Qt.Key.Key_9: 9,
+        }
+        if ctrl and key in number_keys and 1 <= number_keys[key] <= 6:
+            self.bulk_assign.emit(number_keys[key])
+            return True
+
+        # Ctrl+A → accept all pending as opponent
+        if ctrl and key == Qt.Key.Key_A:
+            self.accept_all.emit()
+            return True
+
         # Tab / Shift+Tab → cycle metadata dimension
         if key == Qt.Key.Key_Tab:
             self.cycle_dimension.emit(not shift)  # Tab=forward, Shift+Tab=backward
@@ -67,13 +86,8 @@ class ShortcutHandler(QObject):
             self.cycle_dimension.emit(False)
             return True
 
-        # Number keys 1-9
-        number_keys = {
-            Qt.Key.Key_1: 1, Qt.Key.Key_2: 2, Qt.Key.Key_3: 3,
-            Qt.Key.Key_4: 4, Qt.Key.Key_5: 5, Qt.Key.Key_6: 6,
-            Qt.Key.Key_7: 7, Qt.Key.Key_8: 8, Qt.Key.Key_9: 9,
-        }
-        if key in number_keys:
+        # Number keys 1-9 (non-Ctrl)
+        if not ctrl and key in number_keys:
             self.number_pressed.emit(number_keys[key])
             return True
 

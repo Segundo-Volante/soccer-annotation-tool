@@ -1,0 +1,175 @@
+================================================================================
+  PRETRAINED MODELS FOR AI-ASSISTED ANNOTATION
+================================================================================
+
+This file explains the available detection models, how to install them, and
+how to choose the right one for your annotation workflow.
+
+The AI-Assisted mode is OPTIONAL. The tool works perfectly in manual mode
+without any of these models installed.
+
+--------------------------------------------------------------------------------
+  PREREQUISITES
+--------------------------------------------------------------------------------
+
+Before using any model, install the AI dependencies:
+
+    pip install -r requirements-ai.txt
+
+This installs: ultralytics, torch, torchvision, and roboflow.
+
+================================================================================
+  OPTION 1: COCO MODELS (No API key required)
+================================================================================
+
+General-purpose object detection models trained on the COCO dataset (80 classes).
+The tool filters detections to only "person" and "sports ball".
+
+  Pros:  No API key needed, auto-downloaded, reliable
+  Cons:  Cannot distinguish players from referees or goalkeepers --
+         all people are detected as "person" (pending assignment)
+
+Available sizes:
+
+  Model          Size     Speed       Accuracy    Best for
+  -----------    ------   ---------   ---------   ---------------------------
+  YOLOv8 Nano    6 MB    Fastest     Good        Large batches, quick passes
+  YOLOv8 Small  22 MB    Balanced    Better      General use (recommended)
+  YOLOv8 Medium 50 MB    Slower      Best        When accuracy matters most
+
+Models are auto-downloaded by ultralytics on first use. To PRE-DOWNLOAD them
+(useful for offline work), run:
+
+    python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+    python -c "from ultralytics import YOLO; YOLO('yolov8s.pt')"
+    python -c "from ultralytics import YOLO; YOLO('yolov8m.pt')"
+
+Or download all three at once:
+
+    python -c "
+    from ultralytics import YOLO
+    for m in ['yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt']:
+        print(f'Downloading {m}...')
+        YOLO(m)
+        print(f'  Done.')
+    "
+
+The .pt files will be saved in your project directory.
+
+HOW TO USE:
+  1. Launch the app:  python main.py
+  2. In the session dialog, select "AI-Assisted" mode
+  3. Choose one of the COCO models from the dropdown:
+       - COCO -- YOLOv8n  (fast, 80 classes)
+       - COCO -- YOLOv8s  (balanced, 80 classes)
+       - COCO -- YOLOv8m  (accurate, 80 classes)
+  4. Set confidence threshold (default 0.30)
+  5. Click OK
+
+================================================================================
+  OPTION 2: FOOTBALL-SPECIFIC MODELS (Roboflow API key REQUIRED)
+================================================================================
+
+  ***** IMPORTANT: YOU NEED A ROBOFLOW API KEY TO USE THESE MODELS *****
+
+  Get a free API key at: https://app.roboflow.com/settings/api
+
+Custom-trained models that detect 4 football-specific classes:
+  - player      (pending -- you assign home/opponent)
+  - goalkeeper   (pending -- you assign home GK/opponent GK)
+  - referee      (auto-assigned)
+  - ball         (auto-assigned)
+
+  Pros:  Distinguishes goalkeepers from outfield players,
+         auto-assigns referees and balls, better football accuracy
+  Cons:  Requires Roboflow API key, slower first download
+
+Available models:
+
+  Model               Architecture   Best for
+  -----------------   ------------   ---------------------------
+  Football YOLO11n    YOLOv11        Fast annotation, large batches
+  Football YOLO11s    YOLOv11        General use (recommended)
+  Football YOLO11m    YOLOv11        Maximum accuracy
+  Football RF-DETR-n  RF-DETR        Fast, transformer-based
+  Football RF-DETR-s  RF-DETR        Balanced transformer model
+  Football RF-DETR-m  RF-DETR        Best transformer accuracy
+
+SETUP:
+
+  1. Get your Roboflow API key from https://app.roboflow.com/settings/api
+
+  2. Set the environment variable BEFORE launching the app:
+
+     On macOS/Linux:
+         export ROBOFLOW_API_KEY="your_key_here"
+         python main.py
+
+     On Windows:
+         set ROBOFLOW_API_KEY=your_key_here
+         python main.py
+
+     Or add it permanently to your shell profile (~/.zshrc or ~/.bashrc):
+         echo 'export ROBOFLOW_API_KEY="your_key_here"' >> ~/.zshrc
+
+  3. In the session dialog, select "AI-Assisted" mode
+  4. Choose a football model from the dropdown
+  5. Click OK -- the model will download automatically on first use
+
+Models are cached at: ~/.cache/football-annotation-tool/models/
+
+================================================================================
+  OPTION 3: CUSTOM MODELS
+================================================================================
+
+You can use any custom-trained YOLO .pt model file:
+
+  1. Place your .pt file anywhere on your computer
+  2. In the session dialog, select "AI-Assisted" mode
+  3. Choose "Custom model (.pt file)" from the dropdown
+  4. Browse to your .pt file
+  5. Set confidence threshold and click OK
+
+Custom models should output standard YOLO detection format. Class names
+from the model will be used as labels on detected boxes.
+
+================================================================================
+  MODEL COMPARISON
+================================================================================
+
+  Scenario                          Recommended Model
+  --------------------------------  ---------------------------------
+  First time, quick test            COCO -- YOLOv8 Nano
+  Regular annotation workflow       COCO -- YOLOv8 Small
+  Need referee/GK auto-detection    Football YOLO11s (needs API key)
+  Maximum detection accuracy        Football YOLO11m (needs API key)
+  Offline / no internet             Pre-download COCO models (see above)
+  Custom-trained data               Custom model (.pt file)
+
+================================================================================
+  TROUBLESHOOTING
+================================================================================
+
+  "AI-Assisted button is grayed out"
+      -> Install AI dependencies:  pip install -r requirements-ai.txt
+
+  "Model download failed" (football models)
+      -> Check your ROBOFLOW_API_KEY is set correctly
+      -> Verify at: python -c "import os; print(os.environ.get('ROBOFLOW_API_KEY'))"
+
+  "Detection is very slow on first frame"
+      -> Normal. The model loads into memory on first use (~5-20s).
+         Subsequent frames are much faster (~0.5-3s).
+
+  "App crashes with SIGABRT during detection"
+      -> If running x86 Python on Apple Silicon (Rosetta 2), try using
+         an ARM-native Python installation for better compatibility.
+
+  "Too many / too few detections"
+      -> Adjust the confidence threshold in the session dialog.
+         Lower value (0.15) = more detections, higher (0.50) = fewer.
+
+  "No detections found"
+      -> Try lowering the confidence threshold to 0.15
+      -> Ensure the frame contains visible players
+      -> Try a larger model (Small or Medium instead of Nano)

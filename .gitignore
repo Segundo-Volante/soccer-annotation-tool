@@ -31,3 +31,12 @@ venv/
 
 # fpdf2 font cache
 *.pkl
+
+# Model weights (large binary files -- users download separately)
+*.pt
+
+# R history
+.Rhistory
+
+# Generated HTML docs
+TUTORIAL.html

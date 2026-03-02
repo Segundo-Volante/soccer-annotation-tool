@@ -167,5 +167,30 @@
   "meta.opt.penalty_area": "Penalty Area",
   "meta.opt.clean": "Clean",
   "meta.opt.motion_blur": "Motion Blur",
-  "meta.opt.overlay_heavy": "Heavy Overlay"
+  "meta.opt.overlay_heavy": "Heavy Overlay",
+
+  "session.annotation_mode_label": "Annotation Mode",
+  "session.mode_manual": "Manual",
+  "session.mode_ai_assisted": "AI-Assisted",
+  "session.ai_unavailable_tooltip": "Install ultralytics to enable AI mode",
+  "session.model_label": "Detection Model",
+  "session.confidence_label": "Confidence Threshold",
+  "session.custom_model_placeholder": "Select custom .pt model file...",
+  "session.model_desc_football": "Football-specific model trained on player, goalkeeper, referee, and ball detection.",
+  "session.model_desc_coco": "General-purpose model (COCO). Detects person and sports ball.",
+  "session.model_desc_custom": "Custom model. All detections will be marked as pending.",
+  "dialog.select_model": "Select Model File",
+
+  "ai.detection_complete": "{count} objects detected — {pending} pending",
+  "ai.pending_counter": "{total} detected — {pending} pending, {assigned} assigned",
+  "ai.box_assigned": "Category assigned",
+  "ai.pending_blocks_export": "{count} pending boxes — assign all before exporting",
+  "ai.bulk_assigned": "{count} boxes assigned as {category}",
+  "ai.accept_all_title": "Accept All Pending",
+  "ai.accept_all_message": "Assign all {count} pending boxes as Opponent?",
+  "ai.redetect": "Re-detect",
+  "ai.status_bar": "Model: {model} | Conf: {conf}",
+
+  "help.bulk_assign": "Bulk assign all pending",
+  "help.accept_all": "Accept all as Opponent"
 }

@@ -167,5 +167,30 @@
   "meta.opt.penalty_area": "Grande área",
   "meta.opt.clean": "Limpo",
   "meta.opt.motion_blur": "Desfocagem",
-  "meta.opt.overlay_heavy": "Overlay pesado"
+  "meta.opt.overlay_heavy": "Overlay pesado",
+
+  "session.annotation_mode_label": "Modo de Anotação",
+  "session.mode_manual": "Manual",
+  "session.mode_ai_assisted": "Assistido por IA",
+  "session.ai_unavailable_tooltip": "Instale ultralytics para ativar o modo IA",
+  "session.model_label": "Modelo de Deteção",
+  "session.confidence_label": "Limiar de Confiança",
+  "session.custom_model_placeholder": "Selecionar ficheiro .pt personalizado...",
+  "session.model_desc_football": "Modelo específico de futebol treinado para jogadores, guarda-redes, árbitros e bola.",
+  "session.model_desc_coco": "Modelo genérico (COCO). Deteta pessoas e bola desportiva.",
+  "session.model_desc_custom": "Modelo personalizado. Todas as deteções ficarão pendentes.",
+  "dialog.select_model": "Selecionar Ficheiro de Modelo",
+
+  "ai.detection_complete": "{count} objetos detetados — {pending} pendentes",
+  "ai.pending_counter": "{total} detetados — {pending} pendentes, {assigned} atribuídos",
+  "ai.box_assigned": "Categoria atribuída",
+  "ai.pending_blocks_export": "{count} quadros pendentes — atribua todos antes de exportar",
+  "ai.bulk_assigned": "{count} quadros atribuídos como {category}",
+  "ai.accept_all_title": "Aceitar Todos Pendentes",
+  "ai.accept_all_message": "Atribuir todos os {count} quadros pendentes como Adversário?",
+  "ai.redetect": "Re-detetar",
+  "ai.status_bar": "Modelo: {model} | Conf: {conf}",
+
+  "help.bulk_assign": "Atribuição em massa pendentes",
+  "help.accept_all": "Aceitar todos como Adversário"
 }

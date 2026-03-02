@@ -167,5 +167,30 @@
   "meta.opt.penalty_area": "Surface de réparation",
   "meta.opt.clean": "Net",
   "meta.opt.motion_blur": "Flou de mouvement",
-  "meta.opt.overlay_heavy": "Overlay lourd"
+  "meta.opt.overlay_heavy": "Overlay lourd",
+
+  "session.annotation_mode_label": "Mode d'Annotation",
+  "session.mode_manual": "Manuel",
+  "session.mode_ai_assisted": "Assisté par IA",
+  "session.ai_unavailable_tooltip": "Installez ultralytics pour activer le mode IA",
+  "session.model_label": "Modèle de Détection",
+  "session.confidence_label": "Seuil de Confiance",
+  "session.custom_model_placeholder": "Sélectionner un fichier .pt personnalisé...",
+  "session.model_desc_football": "Modèle spécifique au football entraîné sur joueurs, gardiens, arbitres et ballon.",
+  "session.model_desc_coco": "Modèle générique (COCO). Détecte les personnes et le ballon.",
+  "session.model_desc_custom": "Modèle personnalisé. Toutes les détections seront en attente.",
+  "dialog.select_model": "Sélectionner le Fichier Modèle",
+
+  "ai.detection_complete": "{count} objets détectés — {pending} en attente",
+  "ai.pending_counter": "{total} détectés — {pending} en attente, {assigned} assignés",
+  "ai.box_assigned": "Catégorie assignée",
+  "ai.pending_blocks_export": "{count} cadres en attente — assignez-les tous avant d'exporter",
+  "ai.bulk_assigned": "{count} cadres assignés comme {category}",
+  "ai.accept_all_title": "Accepter Tous en Attente",
+  "ai.accept_all_message": "Assigner les {count} cadres en attente comme Adversaire ?",
+  "ai.redetect": "Re-détecter",
+  "ai.status_bar": "Modèle : {model} | Conf : {conf}",
+
+  "help.bulk_assign": "Assignation massive en attente",
+  "help.accept_all": "Accepter tous comme Adversaire"
 }

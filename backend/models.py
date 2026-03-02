@@ -24,6 +24,21 @@ CATEGORY_NAMES = {
 }
 
 
+class BoxSource(Enum):
+    MANUAL = "manual"
+    AI_DETECTED = "ai_detected"
+
+
+class BoxStatus(Enum):
+    PENDING = "pending"
+    FINALIZED = "finalized"
+
+
+class AnnotationMode(Enum):
+    MANUAL = "manual"
+    AI_ASSISTED = "ai_assisted"
+
+
 class Occlusion(Enum):
     VISIBLE = "visible"
     PARTIAL = "partial"
@@ -65,6 +80,10 @@ class BoundingBox:
     player_name: Optional[str] = None
     occlusion: Occlusion = Occlusion.VISIBLE
     truncated: bool = False
+    source: BoxSource = BoxSource.MANUAL
+    box_status: BoxStatus = BoxStatus.FINALIZED
+    confidence: Optional[float] = None
+    detected_class: Optional[str] = None  # raw model class: "player", "goalkeeper", "person", etc.
 
 
 @dataclass

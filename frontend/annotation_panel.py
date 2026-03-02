@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 
 from backend.i18n import t
-from backend.models import BoundingBox, Category, CATEGORY_NAMES, Occlusion
+from backend.models import BoundingBox, BoxStatus, Category, CATEGORY_NAMES, Occlusion
 
 CATEGORY_COLORS = {
     Category.HOME_PLAYER: QColor("#E74C3C"),
@@ -35,6 +35,15 @@ class AnnotationPanel(QWidget):
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title.setStyleSheet("color: #EEE; font-weight: bold; font-size: 13px;")
         layout.addWidget(self._title)
+
+        # Pending counter (visible only in AI mode when pending boxes exist)
+        self._pending_counter = QLabel("")
+        self._pending_counter.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._pending_counter.setStyleSheet(
+            "color: #F5A623; font-weight: bold; font-size: 11px; padding: 2px;"
+        )
+        self._pending_counter.setVisible(False)
+        layout.addWidget(self._pending_counter)
 
         self._list = QListWidget()
         self._list.setStyleSheet("""
@@ -109,13 +118,34 @@ class AnnotationPanel(QWidget):
     def update_boxes(self, boxes: list[BoundingBox]):
         self._list.blockSignals(True)
         self._list.clear()
+        pending_count = 0
+        finalized_count = 0
         for box in boxes:
-            label = self._format_box(box)
-            item = QListWidgetItem(label)
-            color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
-            item.setForeground(color)
+            if box.box_status == BoxStatus.PENDING:
+                pending_count += 1
+                cls = box.detected_class or "person"
+                conf = f" ({float(box.confidence):.2f})" if box.confidence else ""
+                label = f"? {cls}{conf}"
+                item = QListWidgetItem(label)
+                item.setForeground(QColor("#F5A623"))
+            else:
+                finalized_count += 1
+                label = self._format_box(box)
+                item = QListWidgetItem(label)
+                color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
+                item.setForeground(color)
             self._list.addItem(item)
         self._list.blockSignals(False)
+
+        # Update pending counter
+        if pending_count > 0:
+            self._pending_counter.setText(
+                t("ai.pending_counter",
+                  total=len(boxes), pending=pending_count, assigned=finalized_count)
+            )
+            self._pending_counter.setVisible(True)
+        else:
+            self._pending_counter.setVisible(False)
 
     def select_row(self, row: int):
         self._list.blockSignals(True)

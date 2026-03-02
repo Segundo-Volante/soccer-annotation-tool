@@ -121,6 +121,9 @@ class Exporter:
                 ann["jersey_number"] = box.jersey_number
             if box.player_name:
                 ann["player_name"] = box.player_name
+            ann["source"] = box.source.value
+            if box.confidence is not None:
+                ann["confidence"] = box.confidence
             annotations.append(ann)
 
         # Build frame_metadata: session-level fields + all dynamic metadata

@@ -167,5 +167,30 @@
   "meta.opt.penalty_area": "Area di rigore",
   "meta.opt.clean": "Pulito",
   "meta.opt.motion_blur": "Mosso",
-  "meta.opt.overlay_heavy": "Overlay pesante"
+  "meta.opt.overlay_heavy": "Overlay pesante",
+
+  "session.annotation_mode_label": "Modalità Annotazione",
+  "session.mode_manual": "Manuale",
+  "session.mode_ai_assisted": "Assistita da IA",
+  "session.ai_unavailable_tooltip": "Installa ultralytics per abilitare la modalità IA",
+  "session.model_label": "Modello di Rilevamento",
+  "session.confidence_label": "Soglia di Confidenza",
+  "session.custom_model_placeholder": "Seleziona file .pt personalizzato...",
+  "session.model_desc_football": "Modello specifico per il calcio addestrato su giocatori, portieri, arbitri e pallone.",
+  "session.model_desc_coco": "Modello generico (COCO). Rileva persone e pallone sportivo.",
+  "session.model_desc_custom": "Modello personalizzato. Tutti i rilevamenti saranno in attesa.",
+  "dialog.select_model": "Seleziona File Modello",
+
+  "ai.detection_complete": "{count} oggetti rilevati — {pending} in attesa",
+  "ai.pending_counter": "{total} rilevati — {pending} in attesa, {assigned} assegnati",
+  "ai.box_assigned": "Categoria assegnata",
+  "ai.pending_blocks_export": "{count} riquadri in attesa — assegna tutti prima di esportare",
+  "ai.bulk_assigned": "{count} riquadri assegnati come {category}",
+  "ai.accept_all_title": "Accetta Tutti in Attesa",
+  "ai.accept_all_message": "Assegnare tutti i {count} riquadri in attesa come Avversario?",
+  "ai.redetect": "Ri-rileva",
+  "ai.status_bar": "Modello: {model} | Conf: {conf}",
+
+  "help.bulk_assign": "Assegnazione massiva in attesa",
+  "help.accept_all": "Accetta tutti come Avversario"
 }

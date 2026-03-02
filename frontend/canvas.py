@@ -6,7 +6,7 @@ from PyQt6.QtGui import QPainter, QPixmap, QImage, QColor, QPen, QFont, QBrush
 from PyQt6.QtWidgets import QWidget
 
 from backend.i18n import t
-from backend.models import BoundingBox, Category, CATEGORY_NAMES, Occlusion
+from backend.models import BoundingBox, BoxStatus, Category, CATEGORY_NAMES, Occlusion
 
 MIN_BOX_SIZE = 5
 HANDLE_SIZE = 8
@@ -320,18 +320,54 @@ class AnnotationCanvas(QWidget):
         )
         painter.drawPixmap(target, self._pixmap)
 
-        # Draw existing boxes (category-colored)
+        # Draw existing boxes (category-colored or PENDING amber)
+        label_font = QFont("Arial", 9, QFont.Weight.Bold)
         for i, box in enumerate(self._boxes):
             is_selected = (i == self._selected_index)
             rect = self._image_rect_to_screen(box.x, box.y, box.width, box.height)
 
-            color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
-            if is_selected:
-                pen = QPen(QColor(0, 255, 0), 3)
+            if box.box_status == BoxStatus.PENDING:
+                # PENDING box: amber dashed border + semi-transparent fill
+                if is_selected:
+                    pen = QPen(QColor(0, 255, 0), 3, Qt.PenStyle.DashLine)
+                else:
+                    pen = QPen(QColor("#F5A623"), 2, Qt.PenStyle.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(QBrush(QColor(245, 166, 35, 25)))
+                painter.drawRect(rect)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+
+                # Label: "? player (0.92)" or "? person (0.85)"
+                painter.setFont(label_font)
+                cls_display = box.detected_class or "person"
+                conf_str = f" ({float(box.confidence):.2f})" if box.confidence else ""
+                label_text = f"? {cls_display}{conf_str}"
+                fm = painter.fontMetrics()
+                lx = rect.x() + 3
+                ly = rect.y() + 2
+                lw = fm.horizontalAdvance(label_text) + 6
+                lh = fm.height() + 4
+                painter.fillRect(lx - 2, ly, lw, lh, QColor(30, 30, 46, 200))
+                painter.setPen(QColor("#F5A623"))
+                painter.drawText(lx, ly + fm.height(), label_text)
+
+                # "AI" badge at top-right corner
+                ai_label = "AI"
+                ai_w = fm.horizontalAdvance(ai_label) + 8
+                ax = rect.right() - ai_w
+                ay = rect.y() + 2
+                painter.fillRect(ax, ay, ai_w, lh, QColor(245, 166, 35, 200))
+                painter.setPen(QColor("#1E1E2E"))
+                painter.drawText(ax + 4, ay + fm.height(), ai_label)
             else:
-                pen = QPen(color, 2)
-            painter.setPen(pen)
-            painter.drawRect(rect)
+                # FINALIZED box: category-colored solid border
+                color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
+                if is_selected:
+                    pen = QPen(QColor(0, 255, 0), 3)
+                else:
+                    pen = QPen(color, 2)
+                painter.setPen(pen)
+                painter.drawRect(rect)
 
             # Resize handles on selected box
             if is_selected:

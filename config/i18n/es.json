@@ -167,5 +167,30 @@
   "meta.opt.penalty_area": "Área de penalti",
   "meta.opt.clean": "Limpio",
   "meta.opt.motion_blur": "Desenfoque",
-  "meta.opt.overlay_heavy": "Overlay pesado"
+  "meta.opt.overlay_heavy": "Overlay pesado",
+
+  "session.annotation_mode_label": "Modo de Anotación",
+  "session.mode_manual": "Manual",
+  "session.mode_ai_assisted": "Asistido por IA",
+  "session.ai_unavailable_tooltip": "Instala ultralytics para habilitar el modo IA",
+  "session.model_label": "Modelo de Detección",
+  "session.confidence_label": "Umbral de Confianza",
+  "session.custom_model_placeholder": "Seleccionar archivo .pt personalizado...",
+  "session.model_desc_football": "Modelo específico de fútbol entrenado para detectar jugadores, porteros, árbitros y balón.",
+  "session.model_desc_coco": "Modelo genérico (COCO). Detecta personas y balón deportivo.",
+  "session.model_desc_custom": "Modelo personalizado. Todas las detecciones quedarán pendientes.",
+  "dialog.select_model": "Seleccionar Archivo de Modelo",
+
+  "ai.detection_complete": "{count} objetos detectados — {pending} pendientes",
+  "ai.pending_counter": "{total} detectados — {pending} pendientes, {assigned} asignados",
+  "ai.box_assigned": "Categoría asignada",
+  "ai.pending_blocks_export": "{count} cuadros pendientes — asigna todos antes de exportar",
+  "ai.bulk_assigned": "{count} cuadros asignados como {category}",
+  "ai.accept_all_title": "Aceptar Todos los Pendientes",
+  "ai.accept_all_message": "¿Asignar los {count} cuadros pendientes como Rival?",
+  "ai.redetect": "Re-detectar",
+  "ai.status_bar": "Modelo: {model} | Conf: {conf}",
+
+  "help.bulk_assign": "Asignación masiva pendientes",
+  "help.accept_all": "Aceptar todos como Rival"
 }

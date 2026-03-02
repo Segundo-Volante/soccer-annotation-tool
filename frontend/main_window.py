@@ -1,10 +1,13 @@
 import os
+import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, QEvent
+from PyQt6.QtCore import Qt, QTimer, QEvent, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QMessageBox, QApplication, QDialog,
+    QMessageBox, QApplication, QDialog, QLabel, QPushButton,
+    QProgressBar, QGraphicsOpacityEffect,
 )
 
 from pathlib import Path
@@ -14,7 +17,7 @@ from backend.exporter import Exporter
 from backend.file_manager import FileManager
 from backend.i18n import I18n, t
 from backend.models import (
-    BoundingBox, Category, FrameAnnotation, FrameStatus,
+    BoundingBox, BoxStatus, Category, FrameAnnotation, FrameStatus,
     Occlusion, METADATA_KEYS,
 )
 from backend.project_config import ProjectConfig
@@ -29,6 +32,123 @@ from frontend.session_dialog import SessionDialog
 from frontend.setup_wizard import SetupWizard
 from frontend.shortcuts import ShortcutHandler
 from frontend.toast import Toast
+
+logger = logging.getLogger(__name__)
+
+
+class _DetectionOverlay(QWidget):
+    """Full-canvas dark overlay with progress bar shown during AI detection."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAutoFillBackground(True)
+
+        # Dark semi-transparent background covering the entire canvas
+        palette = self.palette()
+        palette.setColor(self.backgroundRole(), QColor(0, 0, 0, 160))
+        self.setPalette(palette)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Container card
+        card = QWidget()
+        card.setFixedSize(360, 130)
+        card.setStyleSheet(
+            "QWidget { background: #1E1E2E; border: 2px solid #F5A623;"
+            " border-radius: 14px; }"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 18, 24, 18)
+        card_layout.setSpacing(12)
+
+        # Status label
+        self._label = QLabel("Detecting objects...")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setStyleSheet(
+            "color: #F5A623; font-size: 15px; font-weight: bold;"
+            " background: transparent; border: none;"
+        )
+        card_layout.addWidget(self._label)
+
+        # Indeterminate progress bar
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)  # indeterminate
+        self._progress.setFixedHeight(8)
+        self._progress.setTextVisible(False)
+        self._progress.setStyleSheet("""
+            QProgressBar {
+                background: #2A2A3C; border: none; border-radius: 4px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #F5A623, stop:0.5 #FFD580, stop:1 #F5A623
+                );
+                border-radius: 4px;
+            }
+        """)
+        card_layout.addWidget(self._progress)
+
+        # Elapsed time label
+        self._time_label = QLabel("0.0s")
+        self._time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._time_label.setStyleSheet(
+            "color: #8888A0; font-size: 12px; background: transparent; border: none;"
+        )
+        card_layout.addWidget(self._time_label)
+
+        layout.addWidget(card)
+
+        # Elapsed timer
+        self._elapsed_ms = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+    def start(self, model_name: str = ""):
+        self._elapsed_ms = 0
+        if model_name:
+            self._label.setText(f"Detecting with {model_name}...")
+        else:
+            self._label.setText("Detecting objects...")
+        self._time_label.setText("0.0s")
+        self._timer.start(100)
+        # Match parent size
+        if self.parentWidget():
+            self.setGeometry(self.parentWidget().rect())
+        self.show()
+        self.raise_()
+
+    def stop(self):
+        self._timer.stop()
+        self.hide()
+
+    def _tick(self):
+        self._elapsed_ms += 100
+        secs = self._elapsed_ms / 1000
+        if secs < 10:
+            self._time_label.setText(f"{secs:.1f}s")
+        else:
+            self._time_label.setText(f"{secs:.0f}s — model loading, please wait...")
+
+
+class _DetectionWorker(QObject):
+    """Runs YOLO inference in a background thread."""
+    finished = pyqtSignal(list)   # list of detection dicts
+    error = pyqtSignal(str)       # error message
+
+    def __init__(self, model_manager, image_path: str):
+        super().__init__()
+        self._model_manager = model_manager
+        self._image_path = image_path
+
+    def run(self):
+        try:
+            detections = self._model_manager.detect(self._image_path)
+            self.finished.emit(detections)
+        except Exception as e:
+            logger.error("AI detection failed: %s", e, exc_info=True)
+            self.error.emit(str(e))
 
 
 class MainWindow(QMainWindow):
@@ -62,12 +182,24 @@ class MainWindow(QMainWindow):
         self._pending_box: Optional[tuple] = None  # (x, y, w, h) waiting for category
         self._undo_stack: list[int] = []  # box IDs for undo
 
+        # AI-Assisted mode state
+        self._annotation_mode: str = "manual"
+        self._model_manager = None  # Optional ModelManager instance
+        self._ai_status_label: Optional[QLabel] = None
+        self._ai_redetect_btn: Optional[QPushButton] = None
+        self._detection_thread: Optional[QThread] = None
+        self._detection_worker: Optional[_DetectionWorker] = None
+        self._detecting: bool = False  # True while detection is running
+        self._detecting_frame_id: Optional[int] = None
+
         # Build UI
         self._build_ui()
         self._build_shortcuts()
 
         # Install app-level event filter so shortcuts work regardless of focus
         QApplication.instance().installEventFilter(self)
+        # Also watch canvas for resize events (to keep detection overlay sized)
+        self._canvas.installEventFilter(self)
 
         # Show session dialog on start
         QTimer.singleShot(100, self._show_session_dialog)
@@ -75,6 +207,10 @@ class MainWindow(QMainWindow):
     def eventFilter(self, obj, event):
         """Capture all key presses app-wide so shortcuts work even when
         buttons or other widgets have focus."""
+        # Keep detection overlay sized to canvas
+        if obj is self._canvas and event.type() == QEvent.Type.Resize:
+            self._detection_overlay.setGeometry(self._canvas.rect())
+
         if event.type() == QEvent.Type.KeyPress:
             # Skip shortcuts when a dialog is active (session dialog, popups, etc.)
             active_window = QApplication.instance().activeWindow()
@@ -109,13 +245,25 @@ class MainWindow(QMainWindow):
         self._filmstrip.frame_selected.connect(self._on_filmstrip_select)
         mid.addWidget(self._filmstrip)
 
+        # Canvas with detection overlay stacked on top
+        canvas_container = QWidget()
+        canvas_stack = QVBoxLayout(canvas_container)
+        canvas_stack.setContentsMargins(0, 0, 0, 0)
+        canvas_stack.setSpacing(0)
+
         self._canvas = AnnotationCanvas()
         self._canvas.box_drawn.connect(self._on_box_drawn)
         self._canvas.box_selected.connect(self._on_canvas_box_selected)
         self._canvas.box_deselected.connect(self._on_canvas_box_deselected)
         self._canvas.box_moved.connect(self._on_box_moved)
         self._canvas.box_resized.connect(self._on_box_resized)
-        mid.addWidget(self._canvas, stretch=1)
+        canvas_stack.addWidget(self._canvas)
+
+        # Detection overlay (lives on top of canvas)
+        self._detection_overlay = _DetectionOverlay(self._canvas)
+        self._detection_overlay.hide()
+
+        mid.addWidget(canvas_container, stretch=1)
 
         self._annotation_panel = AnnotationPanel()
         self._annotation_panel.box_clicked.connect(self._on_panel_box_clicked)
@@ -160,6 +308,10 @@ class MainWindow(QMainWindow):
         self._shortcuts.delete_box.connect(self._delete_selected_box)
         self._shortcuts.force_save.connect(self._force_save)
 
+        # AI bulk operations
+        self._shortcuts.bulk_assign.connect(self._on_bulk_assign)
+        self._shortcuts.accept_all.connect(self._on_accept_all)
+
     def keyPressEvent(self, event):
         if not self._shortcuts.handle_key(event):
             super().keyPressEvent(event)
@@ -167,6 +319,13 @@ class MainWindow(QMainWindow):
     # ── Session management ──
 
     def _show_session_dialog(self):
+        try:
+            self._show_session_dialog_impl()
+        except Exception as e:
+            logger.error("Session dialog error: %s", e, exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to start session:\n{e}")
+
+    def _show_session_dialog_impl(self):
         # First-run: show setup wizard if project.json doesn't exist
         if not self._project_config.exists:
             config_dir = Path(__file__).parent.parent / "config"
@@ -203,6 +362,10 @@ class MainWindow(QMainWindow):
                 opponent,
                 result.get("weather", "clear"),
                 result.get("lighting", "floodlight"),
+                annotation_mode=result.get("annotation_mode", "manual"),
+                model_name=result.get("model_name", ""),
+                model_confidence=result.get("model_confidence", 0.30),
+                custom_model_path=result.get("custom_model_path", ""),
             )
 
     def _retranslate_ui(self):
@@ -215,18 +378,27 @@ class MainWindow(QMainWindow):
 
     def _start_session(self, folder: str, source: str, match_round: str,
                        opponent: str = "", weather: str = "clear",
-                       lighting: str = "floodlight"):
+                       lighting: str = "floodlight",
+                       annotation_mode: str = "manual",
+                       model_name: str = "",
+                       model_confidence: float = 0.30,
+                       custom_model_path: str = ""):
         self._folder_path = folder
+        self._annotation_mode = annotation_mode
         db_path = os.path.join(folder, "annotations.db")
         self._db = DatabaseManager(db_path)
 
         existing = self._db.find_session_by_folder(folder)
         if existing:
             self._session_id = existing
-            self._db.get_session(existing)  # update last_opened
+            session_data = self._db.get_session(existing)  # update last_opened
+            # Always use the mode the user selected in the dialog (not stored mode)
         else:
             self._session_id = self._db.create_session(
                 folder, source, match_round, opponent, weather, lighting,
+                annotation_mode=annotation_mode,
+                model_name=model_name,
+                model_confidence=model_confidence,
             )
             # Scan and add frames
             filenames = FileManager.scan_folder(folder)
@@ -235,6 +407,11 @@ class MainWindow(QMainWindow):
                 return
             for i, fname in enumerate(filenames):
                 self._db.add_frame(self._session_id, fname, i)
+
+        # Initialize AI model if in AI-assisted mode
+        self._model_manager = None
+        if self._annotation_mode == "ai_assisted":
+            self._init_model_manager(model_name, model_confidence, custom_model_path)
 
         # Setup exporter
         output_path = os.path.join(folder, "output")
@@ -251,6 +428,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(t("main.window_title_with_team",
                               team_name=team_name, folder_name=os.path.basename(folder)))
 
+        # Add AI status bar if in AI mode
+        if self._annotation_mode == "ai_assisted":
+            self._setup_ai_status_bar()
+
         # Jump to first unviewed frame
         first_unviewed = 0
         for i, f in enumerate(self._frames):
@@ -258,6 +439,65 @@ class MainWindow(QMainWindow):
                 first_unviewed = i
                 break
         self._load_frame_at_row(first_unviewed)
+
+    def _init_model_manager(self, model_name: str, confidence: float,
+                            custom_model_path: str = ""):
+        """Create the AI model manager. Model loads lazily on first detect()."""
+        logger.info("Initializing AI model: name=%s, conf=%.2f, custom=%s",
+                     model_name, confidence, custom_model_path)
+        try:
+            from backend.model_manager import ModelManager, AI_AVAILABLE
+            if not AI_AVAILABLE:
+                logger.warning("AI not available — ultralytics not installed")
+                self._toast.show_message(
+                    "AI not available — install ultralytics", "warning", 5000)
+                return
+            self._model_manager = ModelManager(
+                model_name=model_name or "yolov8n",
+                confidence=confidence,
+                custom_model_path=custom_model_path if custom_model_path else None,
+            )
+            # Model loads lazily on first detect() call (in background thread)
+            logger.info("AI model manager created: %s (type=%s)",
+                         self._model_manager.model_name, self._model_manager.model_type)
+        except Exception as e:
+            logger.error("Failed to create AI model manager: %s", e, exc_info=True)
+            self._toast.show_message(f"Model init failed: {e}", "warning", 5000)
+            self._model_manager = None
+
+    def _setup_ai_status_bar(self):
+        """Add an AI status bar below the progress bar."""
+        central = self.centralWidget()
+        root = central.layout()
+
+        ai_bar = QWidget()
+        ai_bar.setStyleSheet("background: #2A2A2A; border-top: 1px solid #444;")
+        bar_layout = QHBoxLayout(ai_bar)
+        bar_layout.setContentsMargins(8, 4, 8, 4)
+        bar_layout.setSpacing(8)
+
+        model_name = self._model_manager.model_name if self._model_manager else "none"
+        conf = self._model_manager.confidence if self._model_manager else 0.0
+        self._ai_status_label = QLabel(
+            t("ai.status_bar", model=model_name, conf=f"{conf:.2f}")
+        )
+        self._ai_status_label.setStyleSheet("color: #F5A623; font-size: 12px; font-weight: bold;")
+        bar_layout.addWidget(self._ai_status_label)
+
+        bar_layout.addStretch()
+
+        self._ai_redetect_btn = QPushButton(t("ai.redetect"))
+        self._ai_redetect_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ai_redetect_btn.setStyleSheet(
+            "QPushButton { background: #3A3A3A; color: #F5A623; padding: 4px 12px;"
+            " border-radius: 3px; font-weight: bold; }"
+            "QPushButton:hover { background: #4A4A4A; }"
+        )
+        self._ai_redetect_btn.clicked.connect(self._re_detect)
+        bar_layout.addWidget(self._ai_redetect_btn)
+
+        # Insert after progress bar (index 1)
+        root.insertWidget(1, ai_bar)
 
     # ── Frame navigation ──
 
@@ -315,6 +555,14 @@ class MainWindow(QMainWindow):
         self._canvas.clear_pending_box()
         self._undo_stack.clear()
 
+        # AI detection: auto-detect on frames with no existing AI-detected boxes
+        if self._annotation_mode == "ai_assisted" and self._model_manager:
+            from backend.models import BoxSource
+            has_ai_boxes = any(b.source == BoxSource.AI_DETECTED for b in self._current_frame.boxes)
+            if (self._current_frame.status in (FrameStatus.UNVIEWED, FrameStatus.IN_PROGRESS)
+                    and not has_ai_boxes):
+                self._run_ai_detection()
+
         # Update progress
         self._update_progress()
 
@@ -347,19 +595,31 @@ class MainWindow(QMainWindow):
     # ── Number key routing ──
 
     def _on_number_key(self, n: int):
-        """Route number key: pending box → category assignment, else → metadata option."""
+        """Route number key: pending box → category, selected AI box → assign, else → metadata."""
+        categories = [
+            Category.HOME_PLAYER,
+            Category.OPPONENT,
+            Category.HOME_GK,
+            Category.OPPONENT_GK,
+            Category.REFEREE,
+            Category.BALL,
+        ]
+        # 1) Manual pending box (just drawn) → assign category
         if self._pending_box and 1 <= n <= 6:
-            categories = [
-                Category.HOME_PLAYER,
-                Category.OPPONENT,
-                Category.HOME_GK,
-                Category.OPPONENT_GK,
-                Category.REFEREE,
-                Category.BALL,
-            ]
             self._assign_category(categories[n - 1])
-        else:
-            self._metadata_bar.select_option(n)
+            return
+
+        # 2) Selected AI PENDING box on canvas → assign category
+        if 1 <= n <= 6 and self._current_frame:
+            idx = self._canvas.get_selected_index()
+            if idx >= 0 and idx < len(self._current_frame.boxes):
+                box = self._current_frame.boxes[idx]
+                if box.box_status == BoxStatus.PENDING:
+                    self._assign_pending_ai_box(idx, categories[n - 1])
+                    return
+
+        # 3) Otherwise → metadata option
+        self._metadata_bar.select_option(n)
 
     # ── Metadata ──
 
@@ -520,11 +780,238 @@ class MainWindow(QMainWindow):
         self._db.delete_box(box_id)
         self._reload_boxes()
 
+    # ── AI-Assisted mode ──
+
+    def _run_ai_detection(self):
+        """Run model detection in a background thread."""
+        try:
+            self._run_ai_detection_impl()
+        except Exception as e:
+            logger.error("AI detection setup error: %s", e, exc_info=True)
+            self._detecting = False
+            self._detection_overlay.stop()
+
+    def _run_ai_detection_impl(self):
+        if not self._model_manager or not self._current_frame:
+            logger.warning("AI detection skipped: model=%s, frame=%s",
+                           self._model_manager is not None,
+                           self._current_frame is not None)
+            return
+        if self._detecting:
+            logger.info("AI detection already in progress, skipping")
+            return
+
+        img_path = os.path.join(self._folder_path, self._current_frame.original_filename)
+        logger.info("Starting AI detection on: %s", img_path)
+        self._detecting = True
+        self._detecting_frame_id = self._current_frame.id
+
+        # Show progress overlay
+        model_name = self._model_manager.model_name if self._model_manager else ""
+        self._detection_overlay.setGeometry(self._canvas.rect())
+        self._detection_overlay.start(model_name)
+
+        # Create worker + thread
+        self._detection_thread = QThread()
+        self._detection_worker = _DetectionWorker(self._model_manager, img_path)
+        self._detection_worker.moveToThread(self._detection_thread)
+
+        # Connect signals
+        self._detection_thread.started.connect(self._detection_worker.run)
+        self._detection_worker.finished.connect(self._on_detection_finished)
+        self._detection_worker.error.connect(self._on_detection_error)
+        self._detection_worker.finished.connect(self._detection_thread.quit)
+        self._detection_worker.error.connect(self._detection_thread.quit)
+        self._detection_thread.finished.connect(self._cleanup_detection_thread)
+
+        self._detection_thread.start()
+
+    def _on_detection_finished(self, detections: list):
+        """Handle detection results on main thread."""
+        try:
+            self._on_detection_finished_impl(detections)
+        except Exception as e:
+            logger.error("Detection result handling error: %s", e, exc_info=True)
+            self._detecting = False
+            self._detection_overlay.stop()
+
+    def _on_detection_finished_impl(self, detections: list):
+        self._detecting = False
+        self._detection_overlay.stop()
+        # Verify we're still on the same frame
+        if not self._current_frame or self._current_frame.id != self._detecting_frame_id:
+            logger.info("Frame changed during detection, discarding results")
+            return
+
+        logger.info("AI detection found %d objects", len(detections))
+        pending_count = 0
+        for det in detections:
+            x, y, w, h = det["bbox"]
+            auto_cat = det["auto_category"]
+            cls_name = det["class_name"]
+            conf = det["confidence"]
+
+            if auto_cat is not None:
+                category = Category(auto_cat)
+                self._db.add_box(
+                    self._current_frame.id, x, y, w, h, category,
+                    source="ai_detected", box_status="finalized",
+                    confidence=conf, detected_class=cls_name,
+                )
+            else:
+                self._db.add_box(
+                    self._current_frame.id, x, y, w, h, Category.OPPONENT,
+                    source="ai_detected", box_status="pending",
+                    confidence=conf, detected_class=cls_name,
+                )
+                pending_count += 1
+
+        self._reload_boxes()
+        total = len(detections)
+        self._toast.show_message(
+            t("ai.detection_complete", count=total, pending=pending_count),
+            "info", 3000,
+        )
+
+    def _on_detection_error(self, error_msg: str):
+        """Handle detection error on main thread."""
+        self._detecting = False
+        self._detection_overlay.stop()
+        self._toast.show_message(f"Detection failed: {error_msg}", "warning", 3000)
+
+    def _cleanup_detection_thread(self):
+        """Clean up thread objects after detection completes."""
+        if self._detection_worker:
+            self._detection_worker.deleteLater()
+            self._detection_worker = None
+        if self._detection_thread:
+            self._detection_thread.deleteLater()
+            self._detection_thread = None
+
+    def _assign_pending_ai_box(self, index: int, category: Category):
+        """Assign a category to a selected PENDING AI box."""
+        if not self._current_frame or index >= len(self._current_frame.boxes):
+            return
+
+        box = self._current_frame.boxes[index]
+        if box.box_status != BoxStatus.PENDING:
+            return
+
+        # For categories that need a roster popup (home player, home gk, etc.)
+        roster = self._get_roster_for_category(category)
+        if roster:
+            popup = PlayerPopup(roster, self)
+            self._shortcuts.set_popup_open(True)
+            result = popup.exec()
+            self._shortcuts.set_popup_open(False)
+            if result != PlayerPopup.DialogCode.Accepted:
+                self._toast.show_message(t("toast.box_cancelled"), "warning")
+                return
+            jersey, name = popup.get_result()
+            self._db.update_box(
+                box.id, category=category, box_status="finalized",
+                jersey_number=jersey, player_name=name,
+            )
+        else:
+            self._db.update_box(box.id, category=category, box_status="finalized")
+
+        self._reload_boxes()
+        self._toast.show_message(t("ai.box_assigned"), "success")
+
+        # Auto-select next pending box
+        self._select_next_pending()
+
+    def _select_next_pending(self):
+        """Select the next PENDING box on canvas after assigning one."""
+        if not self._current_frame:
+            return
+        for i, box in enumerate(self._current_frame.boxes):
+            if box.box_status == BoxStatus.PENDING:
+                self._canvas.select_box(i)
+                self._annotation_panel.select_row(i)
+                return
+
+    def _on_bulk_assign(self, n: int):
+        """Ctrl+N: bulk-assign all pending boxes to category N."""
+        if self._annotation_mode != "ai_assisted" or not self._current_frame:
+            return
+        if n < 1 or n > 6:
+            return
+
+        categories = [
+            Category.HOME_PLAYER, Category.OPPONENT, Category.HOME_GK,
+            Category.OPPONENT_GK, Category.REFEREE, Category.BALL,
+        ]
+        category = categories[n - 1]
+
+        # With football model and Ctrl+2 (Opponent), skip goalkeeper-detected boxes
+        exclude_cls = None
+        if (self._model_manager and self._model_manager.is_football_model
+                and category == Category.OPPONENT):
+            exclude_cls = "goalkeeper"
+
+        count = self._db.bulk_assign_pending(
+            self._current_frame.id, category, exclude_detected_class=exclude_cls,
+        )
+        if count > 0:
+            from backend.models import CATEGORY_NAMES
+            cat_name = CATEGORY_NAMES.get(category, "unknown")
+            self._reload_boxes()
+            self._toast.show_message(
+                t("ai.bulk_assigned", count=count, category=cat_name), "success",
+            )
+        else:
+            self._toast.show_message("No pending boxes to assign", "info")
+
+    def _on_accept_all(self):
+        """Ctrl+A: accept all pending boxes as Opponent after confirmation."""
+        if self._annotation_mode != "ai_assisted" or not self._current_frame:
+            return
+
+        pending = self._db.get_pending_box_count(self._current_frame.id)
+        if pending == 0:
+            self._toast.show_message("No pending boxes", "info")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            t("ai.accept_all_title"),
+            t("ai.accept_all_message", count=pending),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            count = self._db.bulk_assign_pending(
+                self._current_frame.id, Category.OPPONENT,
+            )
+            self._reload_boxes()
+            from backend.models import CATEGORY_NAMES
+            cat_name = CATEGORY_NAMES.get(Category.OPPONENT, "Opponent")
+            self._toast.show_message(
+                t("ai.bulk_assigned", count=count, category=cat_name), "success",
+            )
+
+    def _re_detect(self):
+        """Delete pending AI boxes and re-run detection."""
+        if not self._current_frame or not self._model_manager or self._detecting:
+            return
+        self._db.delete_ai_pending_boxes(self._current_frame.id)
+        self._reload_boxes()
+        self._run_ai_detection()
+
     # ── Export / Skip ──
 
     def _export_and_advance(self):
         if not self._current_frame or not self._exporter:
             return
+
+        # AI mode: block export if pending boxes remain
+        if self._annotation_mode == "ai_assisted" and self._db:
+            pending = self._db.get_pending_box_count(self._current_frame.id)
+            if pending > 0:
+                self._toast.show_message(
+                    t("ai.pending_blocks_export", count=pending), "warning", 3000,
+                )
+                return
 
         # Save metadata from bar
         self._save_metadata()
@@ -596,6 +1083,10 @@ class MainWindow(QMainWindow):
         msg.exec()
 
     def closeEvent(self, event):
+        # Stop any running detection thread
+        if self._detection_thread and self._detection_thread.isRunning():
+            self._detection_thread.quit()
+            self._detection_thread.wait(3000)
         if self._db:
             self._db.close()
         super().closeEvent(event)

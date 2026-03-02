@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Optional
 
 from backend.models import (
-    BoundingBox, Category, FrameAnnotation, FrameStatus, Occlusion,
+    BoundingBox, BoxSource, BoxStatus, Category, FrameAnnotation,
+    FrameStatus, Occlusion,
 )
 
 SCHEMA = """
@@ -17,6 +18,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     weather TEXT NOT NULL,
     lighting TEXT NOT NULL,
     opponent_roster_path TEXT,
+    annotation_mode TEXT DEFAULT 'manual',
+    model_name TEXT,
+    model_confidence REAL DEFAULT 0.30,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_opened TIMESTAMP
 );
@@ -55,6 +59,10 @@ CREATE TABLE IF NOT EXISTS boxes (
     player_name TEXT,
     occlusion TEXT DEFAULT 'visible',
     truncated INTEGER DEFAULT 0,
+    source TEXT DEFAULT 'manual',
+    box_status TEXT DEFAULT 'finalized',
+    confidence REAL,
+    detected_class TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -116,6 +124,27 @@ class DatabaseManager:
         if "ball_visible" in existing and "ball_status" not in existing:
             self.conn.execute("ALTER TABLE frames ADD COLUMN ball_status TEXT DEFAULT 'visible'")
 
+        # Sessions table: AI-assisted mode columns
+        existing_sess = {r[1] for r in self.conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        for col, sql_default in [
+            ("annotation_mode", "'manual'"),
+            ("model_name", "NULL"),
+            ("model_confidence", "0.30"),
+        ]:
+            if col not in existing_sess:
+                self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT DEFAULT {sql_default}")
+
+        # Boxes table: AI-assisted mode columns
+        existing_box = {r[1] for r in self.conn.execute("PRAGMA table_info(boxes)").fetchall()}
+        for col, sql_default in [
+            ("source", "'manual'"),
+            ("box_status", "'finalized'"),
+            ("confidence", "NULL"),
+            ("detected_class", "NULL"),
+        ]:
+            if col not in existing_box:
+                self.conn.execute(f"ALTER TABLE boxes ADD COLUMN {col} TEXT DEFAULT {sql_default}")
+
     def _migrate_metadata_to_json(self):
         """Batch-migrate legacy individual metadata columns into metadata_json."""
         rows = self.conn.execute(
@@ -143,13 +172,18 @@ class DatabaseManager:
     def create_session(self, folder_path: str, source: str, match_round: str,
                        opponent: str = "", weather: str = "clear",
                        lighting: str = "floodlight",
-                       opponent_roster_path: str = "") -> int:
+                       opponent_roster_path: str = "",
+                       annotation_mode: str = "manual",
+                       model_name: str = "",
+                       model_confidence: float = 0.30) -> int:
         cur = self.conn.execute(
             "INSERT INTO sessions (folder_path, source, match_round, opponent, "
-            "weather, lighting, opponent_roster_path, last_opened) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            "weather, lighting, opponent_roster_path, annotation_mode, "
+            "model_name, model_confidence, last_opened) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
             (folder_path, source, match_round, opponent, weather, lighting,
-             opponent_roster_path or None),
+             opponent_roster_path or None, annotation_mode,
+             model_name or None, model_confidence),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -264,20 +298,27 @@ class DatabaseManager:
                 category: Category, jersey_number: Optional[int] = None,
                 player_name: Optional[str] = None,
                 occlusion: Occlusion = Occlusion.VISIBLE,
-                truncated: bool = False) -> int:
+                truncated: bool = False,
+                source: str = "manual",
+                box_status: str = "finalized",
+                confidence: Optional[float] = None,
+                detected_class: Optional[str] = None) -> int:
         cur = self.conn.execute(
             "INSERT INTO boxes (frame_id, x, y, width, height, category, "
-            "jersey_number, player_name, occlusion, truncated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "jersey_number, player_name, occlusion, truncated, "
+            "source, box_status, confidence, detected_class) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (frame_id, x, y, width, height, category.value,
-             jersey_number, player_name, occlusion.value, int(truncated)),
+             jersey_number, player_name, occlusion.value, int(truncated),
+             source, box_status, confidence, detected_class),
         )
         self.conn.commit()
         return cur.lastrowid
 
     def update_box(self, box_id: int, **kwargs):
         allowed = {"x", "y", "width", "height", "category", "jersey_number",
-                    "player_name", "occlusion", "truncated"}
+                    "player_name", "occlusion", "truncated",
+                    "source", "box_status", "confidence", "detected_class"}
         updates = {}
         for k, v in kwargs.items():
             if k not in allowed:
@@ -308,6 +349,61 @@ class DatabaseManager:
             (frame_id,),
         ).fetchall()
         return [self._row_to_box(r) for r in rows]
+
+    # ── AI-Assisted mode operations ──
+
+    def get_pending_box_count(self, frame_id: int) -> int:
+        """Count boxes awaiting category assignment on a frame."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM boxes "
+            "WHERE frame_id = ? AND box_status = 'pending'",
+            (frame_id,),
+        ).fetchone()
+        return row["cnt"]
+
+    def delete_ai_pending_boxes(self, frame_id: int):
+        """Remove all AI-detected pending boxes (for re-detect). Keeps finalized and manual boxes."""
+        self.conn.execute(
+            "DELETE FROM boxes WHERE frame_id = ? "
+            "AND source = 'ai_detected' AND box_status = 'pending'",
+            (frame_id,),
+        )
+        self.conn.commit()
+
+    def bulk_assign_pending(self, frame_id: int, category: Category,
+                            exclude_detected_class: Optional[str] = None) -> int:
+        """Assign all pending boxes on a frame to a given category.
+
+        Args:
+            exclude_detected_class: If set, skip boxes with this detected class
+                (e.g. 'goalkeeper' should not be bulk-assigned as opponent).
+
+        Returns:
+            Number of boxes updated.
+        """
+        if exclude_detected_class:
+            cursor = self.conn.execute(
+                "UPDATE boxes SET category = ?, box_status = 'finalized' "
+                "WHERE frame_id = ? AND box_status = 'pending' "
+                "AND (detected_class IS NULL OR detected_class != ?)",
+                (category.value, frame_id, exclude_detected_class),
+            )
+        else:
+            cursor = self.conn.execute(
+                "UPDATE boxes SET category = ?, box_status = 'finalized' "
+                "WHERE frame_id = ? AND box_status = 'pending'",
+                (category.value, frame_id),
+            )
+        self.conn.commit()
+        return cursor.rowcount
+
+    def get_session_mode(self, session_id: int) -> str:
+        """Return the annotation_mode for a session."""
+        row = self.conn.execute(
+            "SELECT annotation_mode FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        return row["annotation_mode"] if row and row["annotation_mode"] else "manual"
 
     # ── Stats ──
 
@@ -370,6 +466,7 @@ class DatabaseManager:
         )
 
     def _row_to_box(self, row) -> BoundingBox:
+        keys = row.keys()
         return BoundingBox(
             id=row["id"],
             frame_id=row["frame_id"],
@@ -382,4 +479,8 @@ class DatabaseManager:
             player_name=row["player_name"],
             occlusion=Occlusion(row["occlusion"]) if row["occlusion"] else Occlusion.VISIBLE,
             truncated=bool(row["truncated"]),
+            source=BoxSource(row["source"]) if "source" in keys and row["source"] else BoxSource.MANUAL,
+            box_status=BoxStatus(row["box_status"]) if "box_status" in keys and row["box_status"] else BoxStatus.FINALIZED,
+            confidence=row["confidence"] if "confidence" in keys else None,
+            detected_class=row["detected_class"] if "detected_class" in keys else None,
         )
