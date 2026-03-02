@@ -81,11 +81,35 @@ The **right panel** lists every box on the current frame with the player's jerse
 
 ### Step 2 -- Set Frame Metadata (Tab + Number System)
 
-Each frame has **6 metadata dimensions** (configurable in `config/metadata_options.json`). Press **Tab** to cycle to the next dimension (or **Shift+Tab** to go back). The active dimension is highlighted with an **amber border**. Then press a **number key (1-9)** to pick an option.
+Each frame has **6 metadata dimensions** (configurable in `config/metadata_options.json`). Press **Tab** to cycle to the next dimension (or **Shift+Tab** to go back). The active dimension is highlighted with an **amber border**. Then press a **number key (1-9)** to pick an option -- the selected value turns **bold amber**.
 
 Dimensions with `"in_filename": true` are included in exported filenames. Dimensions with `"in_filename": false` are stored in the COCO JSON only.
 
-Metadata **carries over** automatically between consecutive frames. Values shown in **red** trigger **auto-skip**.
+**SHOT** -- Describes the camera framing. Options in red (replay, broadcast, crowd) trigger auto-skip.
+
+![Metadata - Shot Type](screenshots/metadata_shot.png)
+
+**CAMERA** -- Describes camera movement. Transition triggers auto-skip.
+
+![Metadata - Camera Motion](screenshots/metadata_camera.png)
+
+**BALL** -- Ball visibility in the frame.
+
+![Metadata - Ball Status](screenshots/metadata_ball.png)
+
+**SITUATION** -- Current game state (open play, set piece, celebration, etc.).
+
+![Metadata - Game Situation](screenshots/metadata_situation.png)
+
+**ZONE** -- Which third of the pitch is shown.
+
+![Metadata - Pitch Zone](screenshots/metadata_zone.png)
+
+**QUALITY** -- Frame quality. Overlay_heavy and transition trigger auto-skip.
+
+![Metadata - Frame Quality](screenshots/metadata_quality.png)
+
+Metadata **carries over** automatically between consecutive frames -- only change what's different. Values shown in **red** trigger **auto-skip**, which instantly skips the frame and advances to the next one.
 
 ### Step 3 -- Export or Skip
 
