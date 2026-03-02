@@ -3,11 +3,11 @@ import logging
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, QThread, pyqtSignal, QObject
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QAction
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QMessageBox, QApplication, QDialog, QLabel, QPushButton,
-    QProgressBar, QGraphicsOpacityEffect,
+    QProgressBar, QGraphicsOpacityEffect, QMenuBar, QMenu,
 )
 
 from pathlib import Path
@@ -15,6 +15,7 @@ from pathlib import Path
 from backend.annotation_store import AnnotationStore
 from backend.backup_manager import BackupManager
 from backend.batch_operations import BatchOperations
+from backend.collaboration_manager import CollaborationManager
 from backend.health_analyzer import HealthAnalyzer
 from backend.session_stats import SessionStats
 from backend.state_db import StateDB
@@ -30,6 +31,7 @@ from backend.roster_manager import RosterManager
 from frontend.annotation_panel import AnnotationPanel
 from frontend.canvas import AnnotationCanvas
 from frontend.filmstrip import Filmstrip
+from frontend.git_toolbar import GitToolbar
 from frontend.health_dashboard import HealthDashboard
 from frontend.metadata_bar import MetadataBar
 from frontend.player_popup import PlayerPopup
@@ -209,11 +211,19 @@ class MainWindow(QMainWindow):
         self._stats_bar: Optional[StatsBar] = None
         self._backup_timer: Optional[QTimer] = None
 
+        # Collaboration
+        self._collab_manager: Optional[CollaborationManager] = None
+        self._git_toolbar: Optional[GitToolbar] = None
+        self._team_panel = None  # Optional TeamPanel widget
+        self._workflow: str = "solo"
+        self._annotator_name: str = ""
+
         # Session metadata (carried from SessionDialog)
         self._session_meta: dict = {}
 
         # Build UI
         self._build_ui()
+        self._build_menu_bar()
         self._build_shortcuts()
 
         # Install app-level event filter so shortcuts work regardless of focus
@@ -301,6 +311,85 @@ class MainWindow(QMainWindow):
 
         # Toast (overlay notification)
         self._toast = Toast(self)
+
+    def _build_menu_bar(self):
+        """Build the application menu bar with Project menu."""
+        menu_bar = self.menuBar()
+        menu_bar.setStyleSheet("""
+            QMenuBar {
+                background: #1A1A2A; color: #E8E8F0; font-size: 12px;
+                border-bottom: 1px solid #333350;
+            }
+            QMenuBar::item:selected { background: #2A2A3C; }
+            QMenu {
+                background: #1E1E2E; color: #E8E8F0; border: 1px solid #404060;
+                font-size: 12px;
+            }
+            QMenu::item:selected { background: #F5A623; color: #1E1E2E; }
+            QMenu::separator { background: #404060; height: 1px; margin: 4px 8px; }
+        """)
+
+        # ── Project Menu ──
+        project_menu = menu_bar.addMenu("Project")
+
+        # Collaboration Settings
+        collab_action = QAction("Collaboration Settings...", self)
+        collab_action.triggered.connect(self._open_collaboration_settings)
+        project_menu.addAction(collab_action)
+
+        project_menu.addSeparator()
+
+        # Split Frames (Split & Merge workflow)
+        self._split_action = QAction("Split Frames...", self)
+        self._split_action.triggered.connect(self._open_split_dialog)
+        project_menu.addAction(self._split_action)
+
+        # Merge Annotations (Split & Merge workflow)
+        self._merge_action = QAction("Merge Annotations...", self)
+        self._merge_action.triggered.connect(self._open_merge_dialog)
+        project_menu.addAction(self._merge_action)
+
+        project_menu.addSeparator()
+
+        # Git Settings (Git workflow)
+        self._git_settings_action = QAction("Git Settings...", self)
+        self._git_settings_action.triggered.connect(self._open_git_settings)
+        project_menu.addAction(self._git_settings_action)
+
+        project_menu.addSeparator()
+
+        # Open Project Folder
+        open_folder_action = QAction("Open Project Folder", self)
+        open_folder_action.triggered.connect(self._open_project_folder)
+        project_menu.addAction(open_folder_action)
+
+        # ── Tools Menu ──
+        tools_menu = menu_bar.addMenu("Tools")
+
+        health_action = QAction("Dataset Health Dashboard\tCtrl+H", self)
+        health_action.triggered.connect(self._open_health_dashboard)
+        tools_menu.addAction(health_action)
+
+        review_action = QAction("Quick Review && Batch Edit\tCtrl+R", self)
+        review_action.triggered.connect(self._open_review_panel)
+        tools_menu.addAction(review_action)
+
+        export_action = QAction("Export Preview\tCtrl+E", self)
+        export_action.triggered.connect(self._open_export_preview)
+        tools_menu.addAction(export_action)
+
+        # Update menu visibility based on workflow
+        self._update_menu_visibility()
+
+    def _update_menu_visibility(self):
+        """Show/hide menu items based on active workflow."""
+        is_split = self._workflow == "split_merge"
+        is_git = self._workflow == "git"
+        is_custom = self._workflow == "custom"
+
+        self._split_action.setVisible(is_split or is_custom)
+        self._merge_action.setVisible(is_split or is_custom)
+        self._git_settings_action.setVisible(is_git or is_custom)
 
     def _build_shortcuts(self):
         self._shortcuts = ShortcutHandler(self)
@@ -1333,6 +1422,233 @@ class MainWindow(QMainWindow):
                               "QLabel { color: #EEE; font-size: 13px; }")
             msg.exec()
 
+    # ── Collaboration ──
+
+    def _open_collaboration_settings(self):
+        """Open the Workflow Selection dialog."""
+        from frontend.workflow_dialog import WorkflowSelectionDialog
+        dialog = WorkflowSelectionDialog(
+            current_workflow=self._workflow,
+            current_annotator=self._annotator_name,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_result()
+            if result:
+                old_workflow = self._workflow
+                self._workflow = result["workflow"]
+                self._annotator_name = result["annotator"]
+
+                # Setup collaboration manager if we have a store
+                if self._store and self._folder_path:
+                    if not self._collab_manager:
+                        self._collab_manager = CollaborationManager(
+                            self._store, self._folder_path,
+                        )
+                    self._collab_manager.workflow = self._workflow
+                    self._collab_manager.annotator = self._annotator_name
+
+                # Handle workflow-specific setup
+                self._on_workflow_changed(old_workflow)
+
+    def _on_workflow_changed(self, old_workflow: str):
+        """React to workflow change — show/hide UI, open setup dialogs."""
+        self._update_menu_visibility()
+
+        # Remove old workflow UI
+        if old_workflow == "git" and self._git_toolbar:
+            self._git_toolbar.stop_timers()
+            self._git_toolbar.setParent(None)
+            self._git_toolbar.deleteLater()
+            self._git_toolbar = None
+
+        if old_workflow == "shared_folder" and self._team_panel:
+            self._team_panel.setParent(None)
+            self._team_panel.deleteLater()
+            self._team_panel = None
+
+        # Setup new workflow UI
+        if self._workflow == "solo":
+            from frontend.workflow_dialog import SoloConfirmDialog
+            SoloConfirmDialog(self).exec()
+
+        elif self._workflow == "split_merge":
+            self._toast.show_message("Split & Merge mode active. Use Project → Split Frames.", "info", 3000)
+
+        elif self._workflow == "shared_folder":
+            self._setup_shared_folder_workflow()
+
+        elif self._workflow == "git":
+            self._setup_git_workflow()
+
+        elif self._workflow == "custom":
+            from frontend.workflow_dialog import CustomWorkflowDialog
+            dialog = CustomWorkflowDialog(
+                project_dir=self._folder_path or "",
+                parent=self,
+            )
+            dialog.exec()
+
+        self._toast.show_message(
+            f"Workflow: {self._workflow.replace('_', ' ').title()}", "success", 2000
+        )
+
+    def _setup_git_workflow(self):
+        """Initialize Git workflow — show setup dialog if needed, add toolbar."""
+        if not self._folder_path:
+            return
+
+        # Check if git is installed
+        import subprocess, shutil
+        if not shutil.which("git"):
+            from frontend.git_dialogs import GitNotFoundDialog
+            dialog = GitNotFoundDialog(self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self._workflow = "solo"
+                self._update_menu_visibility()
+                return
+
+        # Check if already a git repo
+        project_root = Path(self._folder_path)
+        is_git_repo = (project_root / ".git").exists()
+
+        if not is_git_repo:
+            from frontend.git_dialogs import GitSetupDialog
+            dialog = GitSetupDialog(str(project_root), self._annotator_name, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                result = dialog.get_result()
+                if result:
+                    self._annotator_name = result.get("name", self._annotator_name)
+            else:
+                # User cancelled — stay on previous workflow
+                return
+
+        # Add Git toolbar to the UI
+        self._add_git_toolbar()
+
+    def _add_git_toolbar(self):
+        """Insert the Git toolbar into the main window layout."""
+        if self._git_toolbar or not self._folder_path:
+            return
+
+        self._git_toolbar = GitToolbar(self._folder_path, self._annotator_name)
+        self._git_toolbar.toast_message.connect(
+            lambda msg, style, dur: self._toast.show_message(msg, style, dur)
+        )
+
+        # Insert after stats bar (or AI bar, or progress bar)
+        central = self.centralWidget()
+        root = central.layout()
+        insert_idx = 1
+        if self._annotation_mode == "ai_assisted":
+            insert_idx = 2
+        if self._stats_bar:
+            insert_idx += 1
+        root.insertWidget(insert_idx, self._git_toolbar)
+
+    def _setup_shared_folder_workflow(self):
+        """Initialize Shared Folder workflow — show setup dialog, add team panel."""
+        from frontend.shared_folder_dialogs import SharedFolderSetupDialog
+        dialog = SharedFolderSetupDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_result()
+            if result:
+                self._annotator_name = result.get("annotator", self._annotator_name)
+                if self._collab_manager:
+                    self._collab_manager.annotator = self._annotator_name
+                self._add_team_panel()
+
+    def _add_team_panel(self):
+        """Add the Team Panel to the main window for shared folder workflow."""
+        if self._team_panel or not self._collab_manager:
+            return
+        try:
+            from frontend.shared_folder_dialogs import TeamPanel
+            self._team_panel = TeamPanel(self._collab_manager, self)
+            # Insert into the middle layout (before filmstrip)
+            central = self.centralWidget()
+            root = central.layout()
+            # Find the mid layout (index after progress/ai/stats bars)
+            # The team panel works best as a floating dock or alongside filmstrip
+            # For simplicity, add it to the left of the filmstrip area
+            mid_layout = root.itemAt(root.count() - 2)  # The stretch layout before metadata
+            if mid_layout and mid_layout.layout():
+                mid_layout.layout().insertWidget(0, self._team_panel)
+        except Exception as e:
+            logger.error("Failed to add team panel: %s", e)
+
+    def _open_split_dialog(self):
+        """Open Split Setup dialog."""
+        if not self._store or not self._folder_path:
+            self._toast.show_message("Open a project first", "warning", 2000)
+            return
+        try:
+            from frontend.split_merge_dialogs import SplitSetupDialog
+            dialog = SplitSetupDialog(
+                total_frames=len(self._frames),
+                project_root=self._folder_path,
+                parent=self,
+            )
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                result = dialog.get_result()
+                if result and self._collab_manager:
+                    members = result["members"]
+                    annotators = [m["name"] for m in members]
+                    filenames = [f["filename"] for f in self._frames]
+                    assignments = self._collab_manager.split_frames(
+                        filenames, annotators, strategy="contiguous"
+                    )
+                    self._toast.show_message(
+                        f"Split {len(filenames)} frames among {len(annotators)} annotators",
+                        "success", 3000,
+                    )
+        except ImportError as e:
+            logger.error("Split dialog import error: %s", e)
+
+    def _open_merge_dialog(self):
+        """Open Merge dialog."""
+        try:
+            from frontend.split_merge_dialogs import MergeDialog
+            dialog = MergeDialog(self)
+            dialog.exec()
+        except ImportError as e:
+            logger.error("Merge dialog import error: %s", e)
+
+    def _open_git_settings(self):
+        """Open Git Settings dialog."""
+        if not self._folder_path:
+            return
+        try:
+            from frontend.git_dialogs import GitSettingsDialog
+            dialog = GitSettingsDialog(
+                project_path=self._folder_path,
+                annotator_name=self._annotator_name,
+                parent=self,
+            )
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                result = dialog.get_result()
+                if result:
+                    self._annotator_name = result.get("name", self._annotator_name)
+                    if self._git_toolbar:
+                        self._git_toolbar.set_annotator(self._annotator_name)
+                        self._git_toolbar.refresh_status()
+        except ImportError as e:
+            logger.error("Git settings import error: %s", e)
+
+    def _open_project_folder(self):
+        """Open the project folder in the system file manager."""
+        import subprocess, sys
+        folder = self._folder_path or str(Path(__file__).parent.parent)
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", folder])
+            elif sys.platform == "win32":
+                subprocess.run(["explorer", folder])
+            else:
+                subprocess.run(["xdg-open", folder])
+        except Exception as e:
+            logger.error("Failed to open folder: %s", e)
+
     def closeEvent(self, event):
         # Stop any running detection thread
         if self._detection_thread and self._detection_thread.isRunning():
@@ -1341,6 +1657,9 @@ class MainWindow(QMainWindow):
         # Stop backup timer
         if self._backup_timer:
             self._backup_timer.stop()
+        # Stop git toolbar timers
+        if self._git_toolbar:
+            self._git_toolbar.stop_timers()
         # Create final backup on close
         if self._backup_manager:
             self._backup_manager.create_backup(reason="session_close")
