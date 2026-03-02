@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QEvent
@@ -37,7 +36,7 @@ class MainWindow(QMainWindow):
 
         # Backend
         self._db: Optional[DatabaseManager] = None
-        self._roster = RosterManager(Path(__file__).parent.parent / "config" / "roster.json")
+        self._roster: Optional[RosterManager] = None
         self._exporter: Optional[Exporter] = None
 
         # Session state
@@ -153,6 +152,9 @@ class MainWindow(QMainWindow):
         dialog = SessionDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             result = dialog.get_result()
+            # Load roster from selected CSV
+            roster_path = result.get("roster", "")
+            self._roster = RosterManager(roster_path if roster_path else None)
             self._start_session(
                 result["folder"],
                 result["source"],

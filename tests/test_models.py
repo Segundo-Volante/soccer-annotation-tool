@@ -38,8 +38,7 @@ def test_frame_annotation_defaults():
 
 
 def test_player():
-    p = Player(jersey_number=7, name="Antoine Griezmann",
-               position="CF", nationality="France")
+    p = Player(jersey_number=7, name="Antoine Griezmann")
     assert p.jersey_number == 7
     assert p.name == "Antoine Griezmann"
 

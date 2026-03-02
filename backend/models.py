@@ -86,5 +86,3 @@ class FrameAnnotation:
 class Player:
     jersey_number: int
     name: str
-    position: str
-    nationality: str

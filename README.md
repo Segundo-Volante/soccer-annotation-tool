@@ -1,6 +1,6 @@
 # Soccer Annotation Tool
 
-A keyboard-driven PyQt6 desktop application for annotating soccer broadcast frames. Generates **RT-DETR training data** (COCO JSON + renamed frames) and **BoT-SORT Re-ID crops** (per-player cropped images) for Atletico de Madrid player tracking.
+A keyboard-driven PyQt6 desktop application for annotating soccer broadcast frames. Generates **RT-DETR training data** (COCO JSON + renamed frames) and **BoT-SORT Re-ID crops** (per-player cropped images) for player tracking. Works with **any team** and **any league** -- just load your own roster CSV and select the competition.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.5+-green)
@@ -11,7 +11,8 @@ A keyboard-driven PyQt6 desktop application for annotating soccer broadcast fram
 - **Session dialog** — Configure folder, competition, round, opponent, weather, and lighting per session
 - **Tab + Number metadata system** — 6 frame-level dimensions (shot type, camera motion, ball status, game situation, pitch zone, frame quality) set via Tab cycling and number key selection
 - **Bounding box annotation** — Draw, move, resize boxes with category-colored outlines and pending box prompts
-- **Player roster auto-fill** — Type a jersey number and the Atletico player name fills automatically
+- **CSV roster system** — Load any team's roster from a simple CSV file; Atletico de Madrid 2024-25 included by default
+- **Player roster auto-fill** — Type a jersey number and the player name fills automatically from the loaded roster
 - **Auto-skip** — Frames tagged as replay, broadcast, crowd, overlay_heavy, or transition are skipped instantly
 - **Metadata inheritance** — Consecutive frames inherit the previous frame's metadata automatically
 - **Real-time persistence** — SQLite database with WAL mode saves every action; resume any session by reopening its folder
@@ -47,7 +48,7 @@ python -m pytest tests/ -v
 
 ## Workflow
 
-1. **Launch** — A session dialog asks for the screenshot folder, competition, round, opponent, weather, and lighting
+1. **Launch** — A session dialog asks for the screenshot folder, roster CSV, competition, round, opponent, weather, and lighting
 2. **Set metadata** — Use `Tab` to cycle dimensions, `1-9` to select options
 3. **Draw boxes** — Click and drag on players/ball/referees, then press `1-6` to assign a category
 4. **Set occlusion** — `F` visible, `G` partial, `H` heavy, `T` truncated
@@ -73,9 +74,9 @@ python -m pytest tests/ -v
 
 | Key | Category | Color |
 |-----|----------|-------|
-| 1 | Atletico Player | Red |
+| 1 | Home Player | Red |
 | 2 | Opponent | Blue |
-| 3 | Atletico GK | Orange |
+| 3 | Home GK | Orange |
 | 4 | Opponent GK | Dark Blue |
 | 5 | Referee | Yellow |
 | 6 | Ball | Green |
@@ -116,7 +117,7 @@ soccer-annotation-tool/
 │   ├── database.py         # SQLite manager with WAL mode
 │   ├── exporter.py         # COCO JSON + crop export
 │   ├── file_manager.py     # Image I/O and folder scanning
-│   └── roster_manager.py   # Atletico player roster lookup
+│   └── roster_manager.py   # CSV roster loader + player lookup
 ├── frontend/
 │   ├── main_window.py      # Main application window
 │   ├── canvas.py           # Image display + box drawing
@@ -128,10 +129,11 @@ soccer-annotation-tool/
 │   ├── shortcuts.py        # Keyboard shortcut handler
 │   ├── progress_bar.py     # Session progress display
 │   └── toast.py            # Non-blocking overlay notifications
+├── rosters/
+│   └── atletico_madrid_2024-25.csv  # Default roster (CSV)
 ├── config/
 │   ├── metadata_options.json  # 6 metadata dimensions + options
 │   ├── categories.json        # Category definitions + colors
-│   ├── roster.json            # Atletico de Madrid 2024-25 roster
 │   └── settings.json          # App settings
 ├── tests/                  # 34 tests (pytest)
 ├── TUTORIAL.md             # Full usage guide
@@ -141,19 +143,37 @@ soccer-annotation-tool/
 
 ## Configuration
 
-### Roster
+### Roster (CSV)
 
-Edit `config/roster.json` to update the player roster:
+The included `rosters/atletico_madrid_2024-25.csv` is just an example. You can create a CSV for **any team and any season** -- simply make a new file in the `rosters/` folder with 4 columns:
 
-```json
-{
-  "team_name": "Atletico de Madrid",
-  "season": "2024-25",
-  "players": [
-    {"number": 7, "name": "Antoine Griezmann", "position": "CF", "nationality": "France"}
-  ]
-}
+```csv
+team,season,number,name
+Manchester City,2024-25,9,Erling Haaland
+Manchester City,2024-25,17,Kevin De Bruyne
+Manchester City,2024-25,20,Bernardo Silva
 ```
+
+When you launch the app, the session dialog lets you pick which roster CSV to load. The tool auto-fills player names when you type a jersey number during annotation, saving time on every bounding box.
+
+### Supported Competitions
+
+The source dropdown includes leagues and cups from 7 countries plus continental tournaments:
+
+| Country | Leagues | Cups |
+|---------|---------|------|
+| Spain | LaLiga, LaLiga2 | Copa del Rey, Supercopa |
+| England | EPL, EFL Championship | FA Cup, EFL Cup |
+| France | Ligue 1, Ligue 2 | Coupe de France, Trophee des Champions |
+| Italy | Serie A, Serie B | Coppa Italia, Supercoppa Italiana |
+| Germany | Bundesliga, Bundesliga 2 | DFB-Pokal, DFL-Supercup |
+| Portugal | Liga Portugal, Liga Portugal 2 | Taca de Portugal, Supertaca |
+| Netherlands | Eredivisie, Eerste Divisie | KNVB Beker, Johan Cruyff Schaal |
+| Continental | UCL, UEL, UECL | |
+
+The source field is also editable -- you can type any competition name directly if it's not in the list.
+
+To permanently add more leagues or cups, edit `frontend/session_dialog.py` and add entries to the `self._source_combo.addItems([...])` list.
 
 ### Metadata Options
 

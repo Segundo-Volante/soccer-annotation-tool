@@ -12,11 +12,12 @@ python main.py
 On launch, a startup dialog appears. Fill in:
 
 1. **Folder** — Click "Browse..." to select the folder containing match screenshots (PNG, JPG, BMP, TIFF)
-2. **Source** — Competition: LaLiga, UCL, CopadelRey, Friendly, Supercopa
-3. **Round** — e.g. `R15`, `QF`, `GS3`
-4. **Opponent** — e.g. `Real Madrid`
-5. **Weather** — Session default: Clear, Overcast, Rain, Snow, Fog
-6. **Lighting** — Session default: Daylight Natural, Daylight Shadow, Floodlight, Mixed, Roof Closed
+2. **Roster CSV** — Select a team roster CSV file (the default Atletico de Madrid 2024-25 is pre-selected). You can create your own CSV for any team — see the Roster section below.
+3. **Source** — Competition: LaLiga, UCL, CopadelRey, Friendly, Supercopa
+4. **Round** — e.g. `R15`, `QF`, `GS3`
+5. **Opponent** — e.g. `Real Madrid`
+6. **Weather** — Session default: Clear, Overcast, Rain, Snow, Fog
+7. **Lighting** — Session default: Daylight Natural, Daylight Shadow, Floodlight, Mixed, Roof Closed
 
 Click **"Start Annotating"** to begin.
 
@@ -213,20 +214,20 @@ Each frame's annotation file contains:
 
 ---
 
-## Roster
+## Roster (CSV)
 
-The Atletico de Madrid 2024-25 roster is pre-loaded in `config/roster.json`. To edit it, modify the file directly:
+Rosters are stored as CSV files in the `rosters/` folder. The default `atletico_madrid_2024-25.csv` is included.
 
-```json
-{
-  "team_name": "Atletico de Madrid",
-  "season": "2024-25",
-  "players": [
-    {"number": 7, "name": "Antoine Griezmann", "position": "CF", "nationality": "France"},
-    ...
-  ]
-}
+To create a roster for any team or season, make a new CSV with 4 columns:
+
+```csv
+team,season,number,name
+Real Madrid,2024-25,1,Thibaut Courtois
+Real Madrid,2024-25,5,Jude Bellingham
+Real Madrid,2024-25,7,Vinicius Jr
 ```
+
+Place it in the `rosters/` folder and select it from the session dialog when you start annotating.
 
 ## Keyboard Shortcut Quick Reference
 

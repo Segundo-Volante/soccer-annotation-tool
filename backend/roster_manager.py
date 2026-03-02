@@ -1,4 +1,4 @@
-import json
+import csv
 from pathlib import Path
 from typing import Optional
 
@@ -6,56 +6,38 @@ from backend.models import Player
 
 
 class RosterManager:
-    def __init__(self, roster_path: str | Path = "config/roster.json"):
-        self.roster_path = Path(roster_path)
-        self.team_name = ""
-        self.season = ""
+    """Loads a team roster from a CSV file.
+
+    CSV format (4 columns):
+        team,season,number,name
+        Atletico de Madrid,2024-25,7,Antoine Griezmann
+    """
+
+    def __init__(self, roster_path: str | Path | None = None):
+        self.roster_path: Optional[Path] = Path(roster_path) if roster_path else None
+        self.team_name: str = ""
+        self.season: str = ""
         self.players: dict[int, Player] = {}
-        self.load()
+        if self.roster_path:
+            self.load()
 
     def load(self):
-        if not self.roster_path.exists():
+        if not self.roster_path or not self.roster_path.exists():
             return
-        data = json.loads(self.roster_path.read_text(encoding="utf-8"))
-        self.team_name = data.get("team_name", "")
-        self.season = data.get("season", "")
         self.players.clear()
-        for p in data.get("players", []):
-            player = Player(
-                jersey_number=p["number"],
-                name=p["name"],
-                position=p["position"],
-                nationality=p["nationality"],
-            )
-            self.players[player.jersey_number] = player
+        with open(self.roster_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                number = int(row["number"])
+                name = row["name"].strip()
+                # Read team/season from the first data row (all rows should match)
+                if not self.team_name:
+                    self.team_name = row.get("team", "").strip()
+                    self.season = row.get("season", "").strip()
+                self.players[number] = Player(jersey_number=number, name=name)
 
     def lookup_by_number(self, number: int) -> Optional[Player]:
         return self.players.get(number)
 
     def get_all_players(self) -> list[Player]:
         return sorted(self.players.values(), key=lambda p: p.jersey_number)
-
-    def add_player(self, number: int, name: str, position: str, nationality: str):
-        self.players[number] = Player(number, name, position, nationality)
-
-    def remove_player(self, number: int):
-        self.players.pop(number, None)
-
-    def save(self):
-        data = {
-            "team_name": self.team_name,
-            "season": self.season,
-            "players": [
-                {
-                    "number": p.jersey_number,
-                    "name": p.name,
-                    "position": p.position,
-                    "nationality": p.nationality,
-                }
-                for p in self.get_all_players()
-            ],
-        }
-        self.roster_path.parent.mkdir(parents=True, exist_ok=True)
-        self.roster_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
