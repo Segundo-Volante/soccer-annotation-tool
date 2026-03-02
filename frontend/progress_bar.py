@@ -1,6 +1,8 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QProgressBar
 
+from backend.i18n import t
+
 
 class ProgressBarWidget(QWidget):
     def __init__(self, parent=None):
@@ -12,7 +14,7 @@ class ProgressBarWidget(QWidget):
         layout.setContentsMargins(10, 2, 10, 2)
         layout.setSpacing(12)
 
-        self._frame_label = QLabel("Frame 0 / 0")
+        self._frame_label = QLabel(t("progress.frame_label", current=0, total=0))
         self._frame_label.setStyleSheet("color: #EEE; font-weight: bold; font-size: 12px;")
         layout.addWidget(self._frame_label)
 
@@ -29,15 +31,15 @@ class ProgressBarWidget(QWidget):
         """)
         layout.addWidget(self._bar, stretch=1)
 
-        self._stats_label = QLabel("Annotated: 0   Skipped: 0   Remaining: 0")
+        self._stats_label = QLabel(t("progress.stats", annotated=0, skipped=0, remaining=0))
         self._stats_label.setStyleSheet("color: #CCC; font-size: 11px;")
         layout.addWidget(self._stats_label)
 
     def update_progress(self, current: int, total: int, annotated: int,
                         skipped: int, remaining: int):
-        self._frame_label.setText(f"Frame {current} / {total}")
+        self._frame_label.setText(t("progress.frame_label", current=current, total=total))
         self._bar.setMaximum(total if total > 0 else 1)
         self._bar.setValue(annotated + skipped)
         self._stats_label.setText(
-            f"Annotated: {annotated}   Skipped: {skipped}   Remaining: {remaining}"
+            t("progress.stats", annotated=annotated, skipped=skipped, remaining=remaining)
         )

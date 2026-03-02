@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 )
 
+from backend.i18n import t
+
 
 class MetadataBar(QWidget):
     """Tab+Number metadata bar with 6 dimensions.
@@ -62,9 +64,7 @@ class MetadataBar(QWidget):
         layout.addWidget(self._options_container)
 
         # Row 3: keyboard hint
-        self._hint = QLabel(
-            "Tab → next dimension  |  Shift+Tab → prev  |  1-9 → select option"
-        )
+        self._hint = QLabel(t("metadata.keyboard_hint"))
         self._hint.setStyleSheet("color: #666680; font-size: 10px;")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._hint)

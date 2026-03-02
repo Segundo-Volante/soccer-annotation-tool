@@ -3,13 +3,14 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
 )
 
+from backend.i18n import t
 from backend.roster_manager import RosterManager
 
 
 class PlayerPopup(QDialog):
     def __init__(self, roster: RosterManager, parent=None, pos=None):
         super().__init__(parent)
-        self.setWindowTitle("Player ID")
+        self.setWindowTitle(t("popup.player_id_title"))
         self.setFixedSize(280, 140)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setStyleSheet("""
@@ -36,7 +37,7 @@ class PlayerPopup(QDialog):
 
         # Jersey number row
         num_row = QHBoxLayout()
-        num_row.addWidget(QLabel("Jersey Number:"))
+        num_row.addWidget(QLabel(t("popup.jersey_number_label")))
         self._num_input = QLineEdit()
         self._num_input.setMaxLength(3)
         self._num_input.setFixedWidth(60)
@@ -47,12 +48,12 @@ class PlayerPopup(QDialog):
 
         # Player name row
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Player:"))
+        name_row.addWidget(QLabel(t("popup.player_label")))
         self._name_label = QLabel("—")
         self._name_label.setStyleSheet("color: #4A90D9; font-weight: bold;")
         self._name_input = QLineEdit()
         self._name_input.setVisible(False)
-        self._name_input.setPlaceholderText("Enter name manually")
+        self._name_input.setPlaceholderText(t("popup.player_name_placeholder"))
         name_row.addWidget(self._name_label)
         name_row.addWidget(self._name_input)
         name_row.addStretch()
@@ -61,10 +62,10 @@ class PlayerPopup(QDialog):
         # Buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        confirm_btn = QPushButton("Confirm")
+        confirm_btn = QPushButton(t("button.confirm"))
         confirm_btn.setStyleSheet("background: #27AE60; color: white;")
         confirm_btn.clicked.connect(self._confirm)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(t("button.cancel"))
         cancel_btn.setStyleSheet("background: #C0392B; color: white;")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(confirm_btn)

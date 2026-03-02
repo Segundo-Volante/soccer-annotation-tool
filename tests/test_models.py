@@ -6,18 +6,18 @@ from backend.models import (
 
 
 def test_category_values():
-    assert Category.ATLETICO_PLAYER.value == 0
+    assert Category.HOME_PLAYER.value == 0
     assert Category.BALL.value == 5
 
 
 def test_category_names():
-    assert CATEGORY_NAMES[Category.ATLETICO_PLAYER] == "atletico_player"
+    assert CATEGORY_NAMES[Category.HOME_PLAYER] == "home_player"
     assert CATEGORY_NAMES[Category.BALL] == "ball"
 
 
 def test_bounding_box_defaults():
     box = BoundingBox(id=None, frame_id=1, x=10, y=20, width=30, height=40,
-                      category=Category.ATLETICO_PLAYER)
+                      category=Category.HOME_PLAYER)
     assert box.jersey_number is None
     assert box.occlusion == Occlusion.VISIBLE
     assert box.truncated is False

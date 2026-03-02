@@ -44,7 +44,7 @@ def export_env():
                                game_situation="open_play",
                                pitch_zone="middle_third",
                                frame_quality="clean")
-        db.add_box(fid, 100, 200, 50, 80, Category.ATLETICO_PLAYER,
+        db.add_box(fid, 100, 200, 50, 80, Category.HOME_PLAYER,
                    jersey_number=19, player_name="Julián Álvarez")
         db.add_box(fid, 500, 300, 40, 70, Category.OPPONENT)
         db.add_box(fid, 800, 400, 20, 20, Category.BALL)
@@ -97,7 +97,7 @@ def test_export_frame(export_env):
     with open(json_path) as f:
         data = json.load(f)
     assert len(data["annotations"]) == 3
-    assert data["annotations"][0]["category_name"] == "atletico_player"
+    assert data["annotations"][0]["category_name"] == "home_player"
 
     # Check frame_metadata in COCO JSON
     assert "frame_metadata" in data
@@ -106,12 +106,13 @@ def test_export_frame(export_env):
     assert data["frame_metadata"]["weather"] == "clear"
     assert data["frame_metadata"]["shot_type"] == "wide"
 
-    # Check crops
-    alvarez_crops = os.path.join(env["output_dir"], "crops", "19_Alvarez")
+    # Check crops — home players use home_ prefix
+    alvarez_crops = os.path.join(env["output_dir"], "crops", "home_19_Alvarez")
     assert os.path.isdir(alvarez_crops)
     assert len(os.listdir(alvarez_crops)) == 1
 
-    opp_crops = os.path.join(env["output_dir"], "crops", "opponent")
+    # Opponents without roster go to away/ folder
+    opp_crops = os.path.join(env["output_dir"], "crops", "away")
     assert os.path.isdir(opp_crops)
 
     ball_crops = os.path.join(env["output_dir"], "crops", "ball")
@@ -132,3 +133,35 @@ def test_export_frame(export_env):
     frame = env["db"].get_frame(env["frame"].id)
     assert frame.status == FrameStatus.ANNOTATED
     assert frame.exported_filename == exported_name
+
+
+def test_opponent_crops_with_roster():
+    """When opponent roster is loaded, opponent crops use away_{num}_{name}/ folders."""
+    with tempfile.TemporaryDirectory() as input_dir, \
+         tempfile.TemporaryDirectory() as output_dir:
+        # Create a sample image
+        img = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        cv2.imwrite(os.path.join(input_dir, "frame_002.png"), img)
+
+        db_path = os.path.join(output_dir, "test_opp.db")
+        db = DatabaseManager(db_path)
+        sid = db.create_session(input_dir, "LaLiga", "R15",
+                                opponent="Real Madrid")
+        fid = db.add_frame(sid, "frame_002.png", 0, 1920, 1080)
+        db.save_frame_metadata(fid,
+                               shot_type="wide", camera_motion="static",
+                               ball_status="visible", game_situation="open_play",
+                               pitch_zone="middle_third", frame_quality="clean")
+        db.add_box(fid, 300, 200, 60, 90, Category.OPPONENT,
+                   jersey_number=7, player_name="Vinicius Jr")
+
+        exporter = Exporter(db, input_dir, output_dir, has_opponent_roster=True)
+        frame = db.get_frame(fid)
+        exporter.export_frame(frame, sid)
+
+        # Named opponent folder with away_ prefix
+        opp_folder = os.path.join(output_dir, "crops", "away_07_Jr")
+        assert os.path.isdir(opp_folder)
+        assert len(os.listdir(opp_folder)) == 1
+
+        db.close()

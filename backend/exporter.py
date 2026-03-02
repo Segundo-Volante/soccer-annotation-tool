@@ -12,6 +12,23 @@ from backend.models import (
 )
 
 
+def _load_metadata_config(config_path: Optional[Path] = None) -> list[dict]:
+    """Load frame-level metadata config with in_filename flags."""
+    if config_path is None:
+        config_path = Path(__file__).parent.parent / "config" / "metadata_options.json"
+    if not config_path.exists():
+        return [
+            {"key": "shot_type", "in_filename": True},
+            {"key": "camera_motion", "in_filename": True},
+            {"key": "ball_status", "in_filename": False},
+            {"key": "game_situation", "in_filename": True},
+            {"key": "pitch_zone", "in_filename": False},
+            {"key": "frame_quality", "in_filename": False},
+        ]
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    return data.get("frame_level", [])
+
+
 def _ascii_normalize(text: str) -> str:
     nfkd = unicodedata.normalize("NFKD", text)
     return nfkd.encode("ASCII", "ignore").decode("ASCII")
@@ -24,16 +41,20 @@ def _extract_lastname(full_name: str) -> str:
 
 class Exporter:
     def __init__(self, db: DatabaseManager, input_folder: str | Path,
-                 output_folder: str | Path):
+                 output_folder: str | Path, team_name: str = "Home Team",
+                 has_opponent_roster: bool = False):
         self.db = db
         self.input_folder = Path(input_folder)
         self.output_folder = Path(output_folder)
+        self._team_name = team_name
+        self._has_opponent_roster = has_opponent_roster
+        self._meta_config = _load_metadata_config()
         FileManager.create_output_dirs(self.output_folder)
 
     def validate_metadata(self, frame: FrameAnnotation) -> Optional[str]:
         """Return error message if metadata incomplete, else None."""
         for key in METADATA_KEYS:
-            if not getattr(frame, key, None):
+            if not frame.metadata.get(key):
                 return f"Set {key.replace('_', ' ')} before exporting"
         return None
 
@@ -70,14 +91,19 @@ class Exporter:
         return exported_name
 
     def _build_frame_name(self, frame: FrameAnnotation, seq: int) -> str:
-        source = frame.source or "Unknown"
-        rnd = frame.match_round or "R00"
-        weather = frame.weather or "unknown"
-        lighting = frame.lighting or "unknown"
-        shot = frame.shot_type or "unknown"
-        cam = frame.camera_motion or "unknown"
-        situation = (frame.game_situation or "unknown").replace("_", "-")
-        return f"{source}_{rnd}_{weather}_{lighting}_{shot}_{cam}_{situation}_{seq:04d}.png"
+        parts = [
+            frame.source or "Unknown",
+            frame.match_round or "R00",
+            frame.weather or "unknown",
+            frame.lighting or "unknown",
+        ]
+        # Append frame-level metadata that has in_filename=true
+        for dim in self._meta_config:
+            if dim.get("in_filename", False):
+                val = frame.metadata.get(dim["key"], "unknown")
+                parts.append((val or "unknown").replace("_", "-"))
+        parts.append(f"{seq:04d}")
+        return "_".join(parts) + ".png"
 
     def _build_coco_json(self, frame: FrameAnnotation, exported_name: str) -> dict:
         annotations = []
@@ -97,25 +123,23 @@ class Exporter:
                 ann["player_name"] = box.player_name
             annotations.append(ann)
 
+        # Build frame_metadata: session-level fields + all dynamic metadata
+        frame_metadata = {
+            "source": frame.source,
+            "round": frame.match_round,
+            "opponent": frame.opponent,
+            "weather": frame.weather,
+            "lighting": frame.lighting,
+        }
+        frame_metadata.update(frame.metadata)
+
         return {
             "image": {
                 "file_name": exported_name,
                 "width": frame.image_width,
                 "height": frame.image_height,
             },
-            "frame_metadata": {
-                "source": frame.source,
-                "round": frame.match_round,
-                "opponent": frame.opponent,
-                "weather": frame.weather,
-                "lighting": frame.lighting,
-                "shot_type": frame.shot_type,
-                "camera_motion": frame.camera_motion,
-                "ball_status": frame.ball_status,
-                "game_situation": frame.game_situation,
-                "pitch_zone": frame.pitch_zone,
-                "frame_quality": frame.frame_quality,
-            },
+            "frame_metadata": frame_metadata,
             "annotations": annotations,
         }
 
@@ -133,22 +157,24 @@ class Exporter:
             cat = box.category
             occ = box.occlusion.value
 
-            if cat in (Category.ATLETICO_PLAYER, Category.ATLETICO_GK):
+            if cat in (Category.HOME_PLAYER, Category.HOME_GK):
                 num = box.jersey_number or 0
                 lastname = _extract_lastname(box.player_name) if box.player_name else "Unknown"
-                folder_name = f"{num:02d}_{lastname}"
+                folder_name = f"home_{num:02d}_{lastname}"
                 crop_name = f"{source}_{rnd}_{seq:04d}_{num:02d}_{lastname}_{occ}.png"
                 crop_path = self.output_folder / "crops" / folder_name / crop_name
 
-            elif cat == Category.OPPONENT:
+            elif cat in (Category.OPPONENT, Category.OPPONENT_GK):
                 opp_idx += 1
-                crop_name = f"{source}_{rnd}_{seq:04d}_opp_{opp_idx:03d}_{occ}.png"
-                crop_path = self.output_folder / "crops" / "opponent" / crop_name
-
-            elif cat == Category.OPPONENT_GK:
-                opp_idx += 1
-                crop_name = f"{source}_{rnd}_{seq:04d}_opp_{opp_idx:03d}_{occ}.png"
-                crop_path = self.output_folder / "crops" / "opponent_gk" / crop_name
+                if self._has_opponent_roster and box.jersey_number is not None and box.player_name:
+                    num = box.jersey_number
+                    lastname = _extract_lastname(box.player_name)
+                    folder_name = f"away_{num:02d}_{lastname}"
+                    crop_name = f"{source}_{rnd}_{seq:04d}_{num:02d}_{lastname}_{occ}.png"
+                else:
+                    folder_name = "away"
+                    crop_name = f"{source}_{rnd}_{seq:04d}_opp_{opp_idx:03d}_{occ}.png"
+                crop_path = self.output_folder / "crops" / folder_name / crop_name
 
             elif cat == Category.REFEREE:
                 ref_idx += 1
@@ -223,7 +249,7 @@ class Exporter:
                 "source": session["source"] if session else "",
                 "round": session["match_round"] if session else "",
                 "opponent": session["opponent"] if session else "",
-                "team": "Atletico de Madrid",
+                "team": self._team_name,
             },
             "frames": {
                 "total": stats["total"],

@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, QPoint, QRect, pyqtSignal
 from PyQt6.QtGui import QPainter, QPixmap, QImage, QColor, QPen, QFont, QBrush
 from PyQt6.QtWidgets import QWidget
 
+from backend.i18n import t
 from backend.models import BoundingBox, Category, CATEGORY_NAMES, Occlusion
 
 MIN_BOX_SIZE = 5
@@ -27,9 +28,9 @@ class ResizeHandle(Enum):
 
 
 CATEGORY_COLORS = {
-    Category.ATLETICO_PLAYER: QColor("#E74C3C"),
+    Category.HOME_PLAYER: QColor("#E74C3C"),
     Category.OPPONENT: QColor("#3498DB"),
-    Category.ATLETICO_GK: QColor("#E67E22"),
+    Category.HOME_GK: QColor("#E67E22"),
     Category.OPPONENT_GK: QColor("#2980B9"),
     Category.REFEREE: QColor("#F1C40F"),
     Category.BALL: QColor("#2ECC71"),
@@ -307,7 +308,7 @@ class AnnotationCanvas(QWidget):
         if not self._pixmap:
             painter.setPen(QColor(180, 180, 180))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             "No image loaded")
+                             t("canvas.no_image"))
             painter.end()
             return
 
@@ -357,7 +358,7 @@ class AnnotationCanvas(QWidget):
             # Category prompt below box
             font = QFont("Arial", 10, QFont.Weight.Bold)
             painter.setFont(font)
-            prompt = "1:ATL  2:OPP  3:GK  4:OGK  5:REF  6:BALL"
+            prompt = t("canvas.category_prompt")
             fm = painter.fontMetrics()
             tw = fm.horizontalAdvance(prompt)
             th = fm.height()
@@ -386,7 +387,7 @@ class AnnotationCanvas(QWidget):
 
     def _build_label(self, box: BoundingBox) -> str:
         cat = box.category
-        if cat in (Category.ATLETICO_PLAYER, Category.ATLETICO_GK):
+        if cat in (Category.HOME_PLAYER, Category.HOME_GK):
             num = box.jersey_number or "?"
             name = box.player_name or ""
             parts = name.split()

@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QLabel,
 )
 
+from backend.i18n import t
+
 STATUS_COLORS = {
     "unviewed": QColor("#E0E0E0"),
     "annotated": QColor("#4A90D9"),
@@ -26,7 +28,7 @@ class Filmstrip(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
-        self._count_label = QLabel("0 frames")
+        self._count_label = QLabel(t("filmstrip.frame_count", count=0))
         self._count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._count_label.setStyleSheet("color: #CCC; font-weight: bold;")
         layout.addWidget(self._count_label)
@@ -71,7 +73,7 @@ class Filmstrip(QWidget):
             self._list.addItem(item)
             self._frame_ids.append(f["id"])
 
-        self._count_label.setText(f"{len(frames)} frames")
+        self._count_label.setText(t("filmstrip.frame_count", count=len(frames)))
         self._list.blockSignals(False)
 
     def select_row(self, row: int):

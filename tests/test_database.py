@@ -100,13 +100,14 @@ def test_save_frame_metadata_partial(db):
     assert frame.game_situation == "open_play"
 
 
-def test_save_frame_metadata_rejects_unknown(db):
-    """Unknown keys should be silently ignored."""
+def test_save_frame_metadata_extra_keys(db):
+    """Extra keys are stored in the metadata JSON blob."""
     sid = db.create_session("/tmp/frames", "LaLiga", "R15")
     fid = db.add_frame(sid, "frame_001.png", 0)
-    db.save_frame_metadata(fid, unknown_field="foo", shot_type="wide")
+    db.save_frame_metadata(fid, custom_field="foo", shot_type="wide")
     frame = db.get_frame(fid)
     assert frame.shot_type == "wide"
+    assert frame.metadata.get("custom_field") == "foo"
 
 
 def test_set_frame_status(db):
@@ -120,12 +121,12 @@ def test_set_frame_status(db):
 def test_add_and_get_boxes(db):
     sid = db.create_session("/tmp/frames", "LaLiga", "R15")
     fid = db.add_frame(sid, "frame_001.png", 0)
-    bid = db.add_box(fid, 100, 200, 50, 80, Category.ATLETICO_PLAYER,
+    bid = db.add_box(fid, 100, 200, 50, 80, Category.HOME_PLAYER,
                      jersey_number=19, player_name="Julian Alvarez")
     assert bid is not None
     boxes = db.get_boxes(fid)
     assert len(boxes) == 1
-    assert boxes[0].category == Category.ATLETICO_PLAYER
+    assert boxes[0].category == Category.HOME_PLAYER
     assert boxes[0].jersey_number == 19
 
 
@@ -174,3 +175,34 @@ def test_get_next_seq(db):
     assert db.get_next_seq(sid) == 1
     db.set_frame_status(fid, FrameStatus.ANNOTATED)
     assert db.get_next_seq(sid) == 2
+
+
+def test_metadata_json_blob(db):
+    """Metadata is stored as JSON blob and round-trips correctly."""
+    sid = db.create_session("/tmp/frames", "LaLiga", "R15")
+    fid = db.add_frame(sid, "frame_001.png", 0)
+    db.save_frame_metadata(fid,
+                           shot_type="tight",
+                           camera_motion="zoom_in",
+                           ball_status="in_air",
+                           game_situation="penalty",
+                           pitch_zone="attacking_third",
+                           frame_quality="clean")
+    frame = db.get_frame(fid)
+    assert frame.metadata["shot_type"] == "tight"
+    assert frame.metadata["camera_motion"] == "zoom_in"
+    assert frame.metadata["ball_status"] == "in_air"
+    assert frame.metadata["game_situation"] == "penalty"
+    assert frame.metadata["pitch_zone"] == "attacking_third"
+    assert frame.metadata["frame_quality"] == "clean"
+
+
+def test_metadata_json_merge(db):
+    """Saving metadata merges with existing values."""
+    sid = db.create_session("/tmp/frames", "LaLiga", "R15")
+    fid = db.add_frame(sid, "frame_001.png", 0)
+    db.save_frame_metadata(fid, shot_type="wide", ball_status="visible")
+    db.save_frame_metadata(fid, shot_type="tight")
+    frame = db.get_frame(fid)
+    assert frame.metadata["shot_type"] == "tight"
+    assert frame.metadata["ball_status"] == "visible"

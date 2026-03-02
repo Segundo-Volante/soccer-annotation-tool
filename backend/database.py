@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     opponent TEXT,
     weather TEXT NOT NULL,
     lighting TEXT NOT NULL,
+    opponent_roster_path TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_opened TIMESTAMP
 );
@@ -25,13 +27,15 @@ CREATE TABLE IF NOT EXISTS frames (
     original_filename TEXT NOT NULL,
     image_width INTEGER,
     image_height INTEGER,
-    -- Frame-level metadata (6 dimensions)
+    -- Legacy individual metadata columns (kept for backward compat)
     shot_type TEXT DEFAULT 'wide',
     camera_motion TEXT DEFAULT 'static',
     ball_status TEXT DEFAULT 'visible',
     game_situation TEXT DEFAULT 'open_play',
     pitch_zone TEXT DEFAULT 'middle_third',
     frame_quality TEXT DEFAULT 'clean',
+    -- New JSON blob for dynamic metadata
+    metadata_json TEXT DEFAULT '{}',
     -- State
     status TEXT DEFAULT 'unviewed',
     exported_filename TEXT,
@@ -59,6 +63,12 @@ CREATE INDEX IF NOT EXISTS idx_frames_status ON frames(status);
 CREATE INDEX IF NOT EXISTS idx_boxes_frame ON boxes(frame_id);
 """
 
+# Legacy individual column names for migration
+_LEGACY_META_COLS = [
+    "shot_type", "camera_motion", "ball_status",
+    "game_situation", "pitch_zone", "frame_quality",
+]
+
 
 class DatabaseManager:
     def __init__(self, db_path: str | Path = "annotations.db"):
@@ -76,11 +86,18 @@ class DatabaseManager:
 
     def _migrate(self):
         """Add columns that may not exist in older databases."""
+        # Sessions table migrations
         existing = {r[1] for r in self.conn.execute("PRAGMA table_info(sessions)").fetchall()}
-        for col, default in [("opponent", "''"), ("weather", "'clear'"), ("lighting", "'floodlight'")]:
+        for col, default in [
+            ("opponent", "''"),
+            ("weather", "'clear'"),
+            ("lighting", "'floodlight'"),
+            ("opponent_roster_path", "NULL"),
+        ]:
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT DEFAULT {default}")
 
+        # Frames table migrations
         existing = {r[1] for r in self.conn.execute("PRAGMA table_info(frames)").fetchall()}
         for col, default in [
             ("ball_status", "'visible'"), ("game_situation", "'open_play'"),
@@ -88,9 +105,35 @@ class DatabaseManager:
         ]:
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE frames ADD COLUMN {col} TEXT DEFAULT {default}")
+
+        # Add metadata_json column if missing
+        if "metadata_json" not in existing:
+            self.conn.execute("ALTER TABLE frames ADD COLUMN metadata_json TEXT DEFAULT '{}'")
+            # Migrate existing individual columns into JSON blob
+            self._migrate_metadata_to_json()
+
         # Rename old columns if they exist
         if "ball_visible" in existing and "ball_status" not in existing:
             self.conn.execute("ALTER TABLE frames ADD COLUMN ball_status TEXT DEFAULT 'visible'")
+
+    def _migrate_metadata_to_json(self):
+        """Batch-migrate legacy individual metadata columns into metadata_json."""
+        rows = self.conn.execute(
+            "SELECT id, shot_type, camera_motion, ball_status, "
+            "game_situation, pitch_zone, frame_quality FROM frames "
+            "WHERE metadata_json IS NULL OR metadata_json = '{}'"
+        ).fetchall()
+        for row in rows:
+            meta = {}
+            for col in _LEGACY_META_COLS:
+                val = row[col]
+                if val is not None:
+                    meta[col] = val
+            if meta:
+                self.conn.execute(
+                    "UPDATE frames SET metadata_json = ? WHERE id = ?",
+                    (json.dumps(meta), row["id"]),
+                )
 
     def close(self):
         self.conn.close()
@@ -99,12 +142,14 @@ class DatabaseManager:
 
     def create_session(self, folder_path: str, source: str, match_round: str,
                        opponent: str = "", weather: str = "clear",
-                       lighting: str = "floodlight") -> int:
+                       lighting: str = "floodlight",
+                       opponent_roster_path: str = "") -> int:
         cur = self.conn.execute(
             "INSERT INTO sessions (folder_path, source, match_round, opponent, "
-            "weather, lighting, last_opened) "
-            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            (folder_path, source, match_round, opponent, weather, lighting),
+            "weather, lighting, opponent_roster_path, last_opened) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (folder_path, source, match_round, opponent, weather, lighting,
+             opponent_roster_path or None),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -162,16 +207,34 @@ class DatabaseManager:
         return [dict(r) for r in rows]
 
     def save_frame_metadata(self, frame_id: int, **kwargs):
-        allowed = {"shot_type", "camera_motion", "ball_status",
-                    "game_situation", "pitch_zone", "frame_quality"}
-        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        """Save metadata as JSON blob. Also updates legacy columns for compatibility."""
+        updates = {k: v for k, v in kwargs.items() if v is not None}
         if not updates:
             return
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        # Read existing metadata_json and merge
+        row = self.conn.execute(
+            "SELECT metadata_json FROM frames WHERE id = ?", (frame_id,)
+        ).fetchone()
+        existing = {}
+        if row and row["metadata_json"]:
+            try:
+                existing = json.loads(row["metadata_json"])
+            except (json.JSONDecodeError, TypeError):
+                existing = {}
+        existing.update(updates)
+        # Save JSON blob
         self.conn.execute(
-            f"UPDATE frames SET {set_clause} WHERE id = ?",
-            (*updates.values(), frame_id),
+            "UPDATE frames SET metadata_json = ? WHERE id = ?",
+            (json.dumps(existing), frame_id),
         )
+        # Also update legacy columns that exist
+        legacy_updates = {k: v for k, v in updates.items() if k in set(_LEGACY_META_COLS)}
+        if legacy_updates:
+            set_clause = ", ".join(f"{k} = ?" for k in legacy_updates)
+            self.conn.execute(
+                f"UPDATE frames SET {set_clause} WHERE id = ?",
+                (*legacy_updates.values(), frame_id),
+            )
         self.conn.commit()
 
     def set_frame_status(self, frame_id: int, status: FrameStatus):
@@ -271,6 +334,26 @@ class DatabaseManager:
     # ── Helpers ──
 
     def _row_to_frame(self, row) -> FrameAnnotation:
+        # Build metadata dict: start with legacy columns, then overlay JSON blob
+        metadata = {}
+        keys = row.keys()
+
+        # Read legacy individual columns as base defaults
+        for col in _LEGACY_META_COLS:
+            if col in keys:
+                val = row[col]
+                if val is not None:
+                    metadata[col] = val
+
+        # Overlay with metadata_json (takes priority over legacy columns)
+        metadata_json_str = row["metadata_json"] if "metadata_json" in keys else None
+        if metadata_json_str and metadata_json_str != "{}":
+            try:
+                json_meta = json.loads(metadata_json_str)
+                metadata.update(json_meta)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         return FrameAnnotation(
             id=row["id"],
             original_filename=row["original_filename"],
@@ -281,12 +364,7 @@ class DatabaseManager:
             opponent=row["opponent"] or "",
             weather=row["weather"] or "clear",
             lighting=row["lighting"] or "floodlight",
-            shot_type=row["shot_type"],
-            camera_motion=row["camera_motion"],
-            ball_status=row["ball_status"] if "ball_status" in row.keys() else "visible",
-            game_situation=row["game_situation"] if "game_situation" in row.keys() else "open_play",
-            pitch_zone=row["pitch_zone"] if "pitch_zone" in row.keys() else "middle_third",
-            frame_quality=row["frame_quality"] if "frame_quality" in row.keys() else "clean",
+            metadata=metadata,
             status=FrameStatus(row["status"]),
             exported_filename=row["exported_filename"],
         )

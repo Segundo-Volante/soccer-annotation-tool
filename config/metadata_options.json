@@ -1,56 +1,66 @@
 {
-  "session_level": {
-    "weather": {
+  "session_level": [
+    {
+      "key": "weather",
       "label": "Weather",
-      "options": ["clear", "overcast", "rain", "snow", "fog"]
+      "options": ["clear", "overcast", "rain", "snow", "fog"],
+      "required": false
     },
-    "lighting": {
+    {
+      "key": "lighting",
       "label": "Lighting",
-      "options": ["daylight_natural", "daylight_shadow", "floodlight", "mixed", "roof_closed"]
+      "options": ["daylight_natural", "daylight_shadow", "floodlight", "mixed", "roof_closed"],
+      "required": true
     }
-  },
+  ],
   "frame_level": [
     {
       "key": "shot_type",
       "label": "SHOT",
       "options": ["wide", "medium", "tight", "player_closeup", "tactical", "goal_line", "replay", "broadcast", "crowd"],
       "default": "wide",
-      "auto_skip": ["replay", "broadcast", "crowd"]
+      "auto_skip": ["replay", "broadcast", "crowd"],
+      "in_filename": true
     },
     {
       "key": "camera_motion",
       "label": "CAMERA",
       "options": ["static", "pan", "zoom_in", "zoom_out", "tilt", "tracking", "crane", "transition"],
       "default": "static",
-      "auto_skip": []
+      "auto_skip": [],
+      "in_filename": true
     },
     {
       "key": "ball_status",
       "label": "BALL",
       "options": ["visible", "partial", "occluded", "out_of_frame", "in_air"],
       "default": "visible",
-      "auto_skip": []
+      "auto_skip": [],
+      "in_filename": false
     },
     {
       "key": "game_situation",
       "label": "SITUATION",
       "options": ["open_play", "corner", "free_kick", "goal_kick", "throw_in", "penalty", "kickoff", "stopped", "celebration"],
       "default": "open_play",
-      "auto_skip": []
+      "auto_skip": [],
+      "in_filename": true
     },
     {
       "key": "pitch_zone",
       "label": "ZONE",
       "options": ["defensive_third", "middle_third", "attacking_third", "full_pitch", "penalty_area"],
       "default": "middle_third",
-      "auto_skip": []
+      "auto_skip": [],
+      "in_filename": false
     },
     {
       "key": "frame_quality",
       "label": "QUALITY",
       "options": ["clean", "motion_blur", "overlay_heavy", "transition"],
       "default": "clean",
-      "auto_skip": ["overlay_heavy", "transition"]
+      "auto_skip": ["overlay_heavy", "transition"],
+      "in_filename": false
     }
   ]
 }

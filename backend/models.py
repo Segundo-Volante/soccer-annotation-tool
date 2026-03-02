@@ -1,21 +1,23 @@
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 from enum import Enum
 
 
 class Category(Enum):
-    ATLETICO_PLAYER = 0
+    HOME_PLAYER = 0
     OPPONENT = 1
-    ATLETICO_GK = 2
+    HOME_GK = 2
     OPPONENT_GK = 3
     REFEREE = 4
     BALL = 5
 
 
 CATEGORY_NAMES = {
-    Category.ATLETICO_PLAYER: "atletico_player",
+    Category.HOME_PLAYER: "home_player",
     Category.OPPONENT: "opponent",
-    Category.ATLETICO_GK: "atletico_gk",
+    Category.HOME_GK: "home_gk",
     Category.OPPONENT_GK: "opponent_gk",
     Category.REFEREE: "referee",
     Category.BALL: "ball",
@@ -35,11 +37,19 @@ class FrameStatus(Enum):
     SKIPPED = "skipped"
 
 
-# 6 frame-level metadata dimension keys (order matters for Tab cycling)
-METADATA_KEYS = [
-    "shot_type", "camera_motion", "ball_status",
-    "game_situation", "pitch_zone", "frame_quality",
-]
+def load_metadata_keys(config_path: Optional[Path] = None) -> list[str]:
+    """Load frame-level metadata dimension keys from metadata_options.json."""
+    if config_path is None:
+        config_path = Path(__file__).parent.parent / "config" / "metadata_options.json"
+    if not config_path.exists():
+        return ["shot_type", "camera_motion", "ball_status",
+                "game_situation", "pitch_zone", "frame_quality"]
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    return [dim["key"] for dim in data.get("frame_level", [])]
+
+
+# Default keys (loaded once at import for backward compatibility)
+METADATA_KEYS = load_metadata_keys()
 
 
 @dataclass
@@ -69,17 +79,61 @@ class FrameAnnotation:
     opponent: str
     weather: str
     lighting: str
-    # Frame-level metadata (6 dimensions)
-    shot_type: Optional[str] = None
-    camera_motion: Optional[str] = None
-    ball_status: Optional[str] = None
-    game_situation: Optional[str] = None
-    pitch_zone: Optional[str] = None
-    frame_quality: Optional[str] = None
+    # Frame-level metadata stored as a dict (dynamic dimensions)
+    metadata: dict = field(default_factory=dict)
     # State
     status: FrameStatus = FrameStatus.UNVIEWED
     exported_filename: Optional[str] = None
     boxes: list[BoundingBox] = field(default_factory=list)
+
+    # Backward-compatible property accessors for the 6 default dimensions
+    @property
+    def shot_type(self) -> Optional[str]:
+        return self.metadata.get("shot_type")
+
+    @shot_type.setter
+    def shot_type(self, value):
+        self.metadata["shot_type"] = value
+
+    @property
+    def camera_motion(self) -> Optional[str]:
+        return self.metadata.get("camera_motion")
+
+    @camera_motion.setter
+    def camera_motion(self, value):
+        self.metadata["camera_motion"] = value
+
+    @property
+    def ball_status(self) -> Optional[str]:
+        return self.metadata.get("ball_status")
+
+    @ball_status.setter
+    def ball_status(self, value):
+        self.metadata["ball_status"] = value
+
+    @property
+    def game_situation(self) -> Optional[str]:
+        return self.metadata.get("game_situation")
+
+    @game_situation.setter
+    def game_situation(self, value):
+        self.metadata["game_situation"] = value
+
+    @property
+    def pitch_zone(self) -> Optional[str]:
+        return self.metadata.get("pitch_zone")
+
+    @pitch_zone.setter
+    def pitch_zone(self, value):
+        self.metadata["pitch_zone"] = value
+
+    @property
+    def frame_quality(self) -> Optional[str]:
+        return self.metadata.get("frame_quality")
+
+    @frame_quality.setter
+    def frame_quality(self, value):
+        self.metadata["frame_quality"] = value
 
 
 @dataclass

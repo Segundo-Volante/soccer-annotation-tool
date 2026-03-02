@@ -8,13 +8,15 @@ from PyQt6.QtWidgets import (
     QFrame,
 )
 
+from backend.i18n import t
+
 
 class SessionDialog(QDialog):
     """Startup dialog: folder, roster CSV, session defaults (weather, lighting)."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, project_config=None):
         super().__init__(parent)
-        self.setWindowTitle("Soccer Annotation Tool")
+        self.setWindowTitle(t("session.window_title"))
         self.setFixedWidth(560)
         self.setStyleSheet("""
             QDialog { background: #1E1E2E; }
@@ -42,6 +44,7 @@ class SessionDialog(QDialog):
         opts_path = Path(__file__).parent.parent / "config" / "metadata_options.json"
         self._meta_opts = json.loads(opts_path.read_text(encoding="utf-8"))
 
+        self._project_config = project_config
         self._folder_path = ""
         self._roster_path = ""
         self._result = {}
@@ -51,35 +54,35 @@ class SessionDialog(QDialog):
         layout.setContentsMargins(24, 20, 24, 20)
 
         # Title
-        title = QLabel("Soccer Annotation Tool")
+        title = QLabel(t("main.window_title"))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F5A623;")
         layout.addWidget(title)
 
         # Folder row
-        folder_label = QLabel("Screenshot Folder")
+        folder_label = QLabel(t("session.folder_label"))
         folder_label.setStyleSheet("color: #8888A0; font-size: 11px; font-weight: bold;")
         layout.addWidget(folder_label)
         folder_row = QHBoxLayout()
         self._folder_input = QLineEdit()
-        self._folder_input.setPlaceholderText("Select screenshot folder...")
+        self._folder_input.setPlaceholderText(t("session.folder_placeholder"))
         self._folder_input.setReadOnly(True)
         folder_row.addWidget(self._folder_input, stretch=1)
-        browse_btn = QPushButton("Browse...")
+        browse_btn = QPushButton(t("button.browse"))
         browse_btn.clicked.connect(self._browse_folder)
         folder_row.addWidget(browse_btn)
         layout.addLayout(folder_row)
 
         # Roster CSV row
-        roster_label = QLabel("Team Roster CSV")
+        roster_label = QLabel(t("session.roster_label"))
         roster_label.setStyleSheet("color: #8888A0; font-size: 11px; font-weight: bold;")
         layout.addWidget(roster_label)
         roster_row = QHBoxLayout()
         self._roster_input = QLineEdit()
-        self._roster_input.setPlaceholderText("Select roster CSV file...")
+        self._roster_input.setPlaceholderText(t("session.roster_placeholder"))
         self._roster_input.setReadOnly(True)
         roster_row.addWidget(self._roster_input, stretch=1)
-        roster_btn = QPushButton("Browse...")
+        roster_btn = QPushButton(t("button.browse"))
         roster_btn.clicked.connect(self._browse_roster)
         roster_row.addWidget(roster_btn)
         layout.addLayout(roster_row)
@@ -98,41 +101,42 @@ class SessionDialog(QDialog):
         # Source / Round / Opponent row
         grid = QGridLayout()
         grid.setSpacing(8)
-        grid.addWidget(QLabel("Source"), 0, 0)
+        grid.addWidget(QLabel(t("session.source_label")), 0, 0)
         self._source_combo = QComboBox()
         self._source_combo.setEditable(True)
-        self._source_combo.lineEdit().setPlaceholderText("Select or type...")
-        self._source_combo.addItems([
-            # --- Spain ---
-            "LaLiga", "LaLiga2", "CopadelRey", "Supercopa",
-            # --- England ---
-            "EPL", "EFL_Championship", "FA_Cup", "EFL_Cup",
-            # --- France ---
-            "Ligue1", "Ligue2", "CoupeDeFrance", "TropheeDesChampions",
-            # --- Italy ---
-            "SerieA", "SerieB", "CoppaItalia", "SupercoppaItaliana",
-            # --- Germany ---
-            "Bundesliga", "Bundesliga2", "DFB_Pokal", "DFL_Supercup",
-            # --- Portugal ---
-            "LigaPortugal", "LigaPortugal2", "TacaDePortugal", "Supertaca",
-            # --- Netherlands ---
-            "Eredivisie", "EersteDivisie", "KNVB_Beker", "JohanCruyffSchaal",
-            # --- Continental ---
-            "UCL", "UEL", "UECL",
-            # --- Other ---
-            "Friendly",
-        ])
+        self._source_combo.lineEdit().setPlaceholderText(t("session.source_placeholder"))
+        # Load competitions from project config, fallback to defaults
+        if self._project_config and self._project_config.exists:
+            competitions = self._project_config.get_competitions()
+        else:
+            competitions = [
+                "LaLiga", "LaLiga2", "CopadelRey", "Supercopa",
+                "EPL", "EFL_Championship", "FA_Cup", "EFL_Cup",
+                "Ligue1", "Ligue2", "CoupeDeFrance", "TropheeDesChampions",
+                "SerieA", "SerieB", "CoppaItalia", "SupercoppaItaliana",
+                "Bundesliga", "Bundesliga2", "DFB_Pokal", "DFL_Supercup",
+                "LigaPortugal", "LigaPortugal2", "TacaDePortugal", "Supertaca",
+                "Eredivisie", "EersteDivisie", "KNVB_Beker", "JohanCruyffSchaal",
+                "UCL", "UEL", "UECL", "Friendly",
+            ]
+        self._source_combo.addItems(competitions)
         grid.addWidget(self._source_combo, 0, 1)
 
-        grid.addWidget(QLabel("Round"), 0, 2)
+        grid.addWidget(QLabel(t("session.round_label")), 0, 2)
         self._round_input = QLineEdit()
-        self._round_input.setPlaceholderText("R15, QF, GS3...")
+        self._round_input.setPlaceholderText(t("session.round_placeholder"))
         grid.addWidget(self._round_input, 0, 3)
 
-        grid.addWidget(QLabel("Opponent"), 1, 0)
-        self._opponent_input = QLineEdit()
-        self._opponent_input.setPlaceholderText("e.g. Real Madrid")
-        grid.addWidget(self._opponent_input, 1, 1, 1, 3)
+        grid.addWidget(QLabel(t("session.opponent_label")), 1, 0)
+        self._opponent_combo = QComboBox()
+        self._opponent_combo.setEditable(True)
+        self._opponent_combo.lineEdit().setPlaceholderText(t("session.opponent_placeholder"))
+        # Populate with known opponents from CSV files
+        if self._project_config and self._project_config.exists:
+            opponent_names = self._project_config.get_opponent_names()
+            if opponent_names:
+                self._opponent_combo.addItems(opponent_names)
+        grid.addWidget(self._opponent_combo, 1, 1, 1, 3)
         layout.addLayout(grid)
 
         # Separator
@@ -141,41 +145,39 @@ class SessionDialog(QDialog):
         sep2.setStyleSheet("color: #404060;")
         layout.addWidget(sep2)
 
-        session_label = QLabel("Session Defaults (apply to all frames)")
+        session_label = QLabel(t("session.defaults_label"))
         session_label.setStyleSheet("color: #8888A0; font-size: 11px; font-weight: bold;")
         layout.addWidget(session_label)
 
-        # Weather radio buttons
-        weather_opts = self._meta_opts["session_level"]["weather"]["options"]
-        self._weather_group = QButtonGroup(self)
-        weather_box = QGroupBox("Weather")
-        wl = QHBoxLayout(weather_box)
-        for i, opt in enumerate(weather_opts):
-            rb = QRadioButton(opt.replace("_", " ").title())
-            rb.setProperty("value", opt)
-            self._weather_group.addButton(rb, i)
-            wl.addWidget(rb)
-            if i == 0:
-                rb.setChecked(True)
-        layout.addWidget(weather_box)
+        # Build session-level radio groups dynamically from config array
+        self._session_groups: dict[str, QButtonGroup] = {}
+        for dim in self._meta_opts.get("session_level", []):
+            key = dim["key"]
+            label = dim.get("label", key.replace("_", " ").title())
+            options = dim.get("options", [])
+            group = QButtonGroup(self)
+            box = QGroupBox(label)
+            box_layout = QHBoxLayout(box)
+            for i, opt in enumerate(options):
+                rb = QRadioButton(opt.replace("_", " ").title())
+                rb.setProperty("value", opt)
+                group.addButton(rb, i)
+                box_layout.addWidget(rb)
+                if i == 0:
+                    rb.setChecked(True)
+            self._session_groups[key] = group
+            layout.addWidget(box)
 
-        # Lighting radio buttons
-        lighting_opts = self._meta_opts["session_level"]["lighting"]["options"]
-        self._lighting_group = QButtonGroup(self)
-        lighting_box = QGroupBox("Lighting")
-        ll = QHBoxLayout(lighting_box)
-        for i, opt in enumerate(lighting_opts):
-            rb = QRadioButton(opt.replace("_", " ").title())
-            rb.setProperty("value", opt)
-            self._lighting_group.addButton(rb, i)
-            ll.addWidget(rb)
-            if opt == "floodlight":
-                rb.setChecked(True)
-        layout.addWidget(lighting_box)
+        # Set better defaults for known keys
+        if "lighting" in self._session_groups:
+            for btn in self._session_groups["lighting"].buttons():
+                if btn.property("value") == "floodlight":
+                    btn.setChecked(True)
+                    break
 
         # Start button
         layout.addSpacing(8)
-        self._start_btn = QPushButton("Start Annotating")
+        self._start_btn = QPushButton(t("button.start_annotating"))
         self._start_btn.setStyleSheet("""
             QPushButton {
                 background: #F5A623; color: #1E1E2E; font-size: 14px;
@@ -187,22 +189,28 @@ class SessionDialog(QDialog):
         self._start_btn.clicked.connect(self._on_start)
         layout.addWidget(self._start_btn)
 
-        # Pre-fill roster with default if it exists
-        default_roster = Path(__file__).parent.parent / "rosters" / "atletico_madrid_2024-25.csv"
-        if default_roster.exists():
+        # Pre-fill roster from project config or fallback to default
+        default_roster = None
+        if self._project_config and self._project_config.exists:
+            default_roster = self._project_config.get_home_roster_path()
+        if not default_roster:
+            fallback = Path(__file__).parent.parent / "rosters" / "atletico_madrid_2024-25.csv"
+            if fallback.exists():
+                default_roster = fallback
+        if default_roster:
             self._roster_path = str(default_roster)
             self._roster_input.setText(str(default_roster))
             self._preview_roster(default_roster)
 
     def _browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Screenshot Folder")
+        folder = QFileDialog.getExistingDirectory(self, t("dialog.select_folder"))
         if folder:
             self._folder_path = folder
             self._folder_input.setText(folder)
 
     def _browse_roster(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Roster CSV",
+            self, t("dialog.select_roster"),
             str(Path(__file__).parent.parent / "rosters"),
             "CSV Files (*.csv);;All Files (*)",
         )
@@ -225,26 +233,28 @@ class SessionDialog(QDialog):
                     count = 1
                     for _ in reader:
                         count += 1
-                    self._roster_info.setText(f"{team} | {season} | {count} players")
+                    self._roster_info.setText(t("session.roster_preview",
+                                                team=team, season=season, count=count))
                 else:
-                    self._roster_info.setText("Empty CSV")
+                    self._roster_info.setText(t("session.roster_empty"))
         except Exception:
-            self._roster_info.setText("Could not read CSV")
+            self._roster_info.setText(t("session.roster_error"))
 
     def _on_start(self):
         if not self._folder_path or not self._round_input.text().strip():
             return
-        weather_btn = self._weather_group.checkedButton()
-        lighting_btn = self._lighting_group.checkedButton()
         self._result = {
             "folder": self._folder_path,
             "roster": self._roster_path,
             "source": self._source_combo.currentText(),
             "round": self._round_input.text().strip(),
-            "opponent": self._opponent_input.text().strip(),
-            "weather": weather_btn.property("value") if weather_btn else "clear",
-            "lighting": lighting_btn.property("value") if lighting_btn else "floodlight",
+            "opponent": self._opponent_combo.currentText().strip(),
         }
+        # Collect session-level values from dynamic radio groups
+        defaults = {"weather": "clear", "lighting": "floodlight"}
+        for key, group in self._session_groups.items():
+            btn = group.checkedButton()
+            self._result[key] = btn.property("value") if btn else defaults.get(key, "")
         self.accept()
 
     def get_result(self) -> dict:

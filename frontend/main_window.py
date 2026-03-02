@@ -7,13 +7,17 @@ from PyQt6.QtWidgets import (
     QMessageBox, QApplication, QDialog,
 )
 
+from pathlib import Path
+
 from backend.database import DatabaseManager
 from backend.exporter import Exporter
 from backend.file_manager import FileManager
+from backend.i18n import I18n, t
 from backend.models import (
     BoundingBox, Category, FrameAnnotation, FrameStatus,
     Occlusion, METADATA_KEYS,
 )
+from backend.project_config import ProjectConfig
 from backend.roster_manager import RosterManager
 from frontend.annotation_panel import AnnotationPanel
 from frontend.canvas import AnnotationCanvas
@@ -22,6 +26,7 @@ from frontend.metadata_bar import MetadataBar
 from frontend.player_popup import PlayerPopup
 from frontend.progress_bar import ProgressBarWidget
 from frontend.session_dialog import SessionDialog
+from frontend.setup_wizard import SetupWizard
 from frontend.shortcuts import ShortcutHandler
 from frontend.toast import Toast
 
@@ -29,7 +34,15 @@ from frontend.toast import Toast
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Soccer Annotation Tool")
+        # Load project config
+        config_dir = Path(__file__).parent.parent / "config"
+        self._project_config = ProjectConfig(config_dir)
+
+        # Load i18n
+        lang = self._project_config.language if self._project_config.exists else "en"
+        I18n.load(lang, config_dir)
+
+        self.setWindowTitle(t("main.window_title"))
         self.setMinimumSize(1200, 700)
         self.resize(1600, 900)
         self.setStyleSheet("background: #1E1E1E;")
@@ -37,6 +50,7 @@ class MainWindow(QMainWindow):
         # Backend
         self._db: Optional[DatabaseManager] = None
         self._roster: Optional[RosterManager] = None
+        self._opponent_roster: Optional[RosterManager] = None
         self._exporter: Optional[Exporter] = None
 
         # Session state
@@ -149,17 +163,34 @@ class MainWindow(QMainWindow):
     # ── Session management ──
 
     def _show_session_dialog(self):
-        dialog = SessionDialog(self)
+        # First-run: show setup wizard if project.json doesn't exist
+        if not self._project_config.exists:
+            config_dir = Path(__file__).parent.parent / "config"
+            wizard = SetupWizard(config_dir, self)
+            if wizard.exec() != QDialog.DialogCode.Accepted:
+                return
+            # Reload config after wizard
+            self._project_config = ProjectConfig(config_dir)
+
+        dialog = SessionDialog(self, project_config=self._project_config)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             result = dialog.get_result()
-            # Load roster from selected CSV
+            # Load home roster from session result or project config
             roster_path = result.get("roster", "")
+            if not roster_path and self._project_config.exists:
+                config_roster = self._project_config.get_home_roster_path()
+                if config_roster:
+                    roster_path = str(config_roster)
             self._roster = RosterManager(roster_path if roster_path else None)
+            # Load opponent roster if available
+            opponent = result.get("opponent", "")
+            opp_csv = self._project_config.get_opponent_roster_path(opponent) if opponent else None
+            self._opponent_roster = RosterManager(str(opp_csv)) if opp_csv else None
             self._start_session(
                 result["folder"],
                 result["source"],
                 result["round"],
-                result.get("opponent", ""),
+                opponent,
                 result.get("weather", "clear"),
                 result.get("lighting", "floodlight"),
             )
@@ -182,20 +213,25 @@ class MainWindow(QMainWindow):
             # Scan and add frames
             filenames = FileManager.scan_folder(folder)
             if not filenames:
-                QMessageBox.warning(self, "Error", "No images found in the selected folder.")
+                QMessageBox.warning(self, t("error.title"), t("error.no_images_found"))
                 return
             for i, fname in enumerate(filenames):
                 self._db.add_frame(self._session_id, fname, i)
 
         # Setup exporter
         output_path = os.path.join(folder, "output")
-        self._exporter = Exporter(self._db, folder, output_path)
+        team_name = self._project_config.team_name if self._project_config.exists else "Home Team"
+        self._exporter = Exporter(
+            self._db, folder, output_path, team_name=team_name,
+            has_opponent_roster=self._opponent_roster is not None,
+        )
 
         # Load frames
         self._frames = self._db.get_session_frames(self._session_id)
         self._filmstrip.load_frames(self._frames, folder)
 
-        self.setWindowTitle(f"Soccer Annotation Tool — {os.path.basename(folder)}")
+        self.setWindowTitle(t("main.window_title_with_team",
+                              team_name=team_name, folder_name=os.path.basename(folder)))
 
         # Jump to first unviewed frame
         first_unviewed = 0
@@ -243,15 +279,8 @@ class MainWindow(QMainWindow):
             for k, v in prev_meta.items():
                 setattr(self._current_frame, k, v)
 
-        # Set metadata bar from frame
-        self._metadata_bar.set_metadata(
-            shot_type=self._current_frame.shot_type,
-            camera_motion=self._current_frame.camera_motion,
-            ball_status=self._current_frame.ball_status,
-            game_situation=self._current_frame.game_situation,
-            pitch_zone=self._current_frame.pitch_zone,
-            frame_quality=self._current_frame.frame_quality,
-        )
+        # Set metadata bar from frame's dynamic metadata dict
+        self._metadata_bar.set_metadata(**self._current_frame.metadata)
 
         # Update filmstrip selection
         self._filmstrip.select_row(row)
@@ -303,9 +332,9 @@ class MainWindow(QMainWindow):
         """Route number key: pending box → category assignment, else → metadata option."""
         if self._pending_box and 1 <= n <= 6:
             categories = [
-                Category.ATLETICO_PLAYER,
+                Category.HOME_PLAYER,
                 Category.OPPONENT,
-                Category.ATLETICO_GK,
+                Category.HOME_GK,
                 Category.OPPONENT_GK,
                 Category.REFEREE,
                 Category.BALL,
@@ -326,7 +355,7 @@ class MainWindow(QMainWindow):
             return
         self._save_metadata()
         display = value.replace("_", " ")
-        self._toast.show_message(f"Auto-skip: {display}", "skip")
+        self._toast.show_message(t("toast.auto_skip", display=display), "skip")
         self._db.set_frame_status(self._current_frame.id, FrameStatus.SKIPPED)
         self._frames[self._current_row]["status"] = "skipped"
         self._filmstrip.update_status(self._current_row, "skipped")
@@ -346,7 +375,16 @@ class MainWindow(QMainWindow):
     def _on_box_drawn(self, x, y, w, h):
         self._pending_box = (x, y, w, h)
         self._canvas.set_pending_box(x, y, w, h)
-        self._toast.show_message("Press 1-6 for category", "info", 3000)
+        self._toast.show_message(t("toast.press_category"), "info", 3000)
+
+    def _get_roster_for_category(self, category: Category) -> Optional[RosterManager]:
+        """Return the appropriate roster for a category, or None."""
+        roster_type = self._project_config.get_category_roster_type(category.value)
+        if roster_type == "home":
+            return self._roster
+        elif roster_type == "opponent_auto" and self._opponent_roster:
+            return self._opponent_roster
+        return None
 
     def _assign_category(self, category: Category):
         if not self._pending_box or not self._current_frame:
@@ -355,13 +393,14 @@ class MainWindow(QMainWindow):
         self._pending_box = None
         self._canvas.clear_pending_box()
 
-        if category in (Category.ATLETICO_PLAYER, Category.ATLETICO_GK):
-            popup = PlayerPopup(self._roster, self)
+        roster = self._get_roster_for_category(category)
+        if roster:
+            popup = PlayerPopup(roster, self)
             self._shortcuts.set_popup_open(True)
             result = popup.exec()
             self._shortcuts.set_popup_open(False)
             if result != PlayerPopup.DialogCode.Accepted:
-                self._toast.show_message("Box cancelled", "warning")
+                self._toast.show_message(t("toast.box_cancelled"), "warning")
                 return
             jersey, name = popup.get_result()
             box_id = self._db.add_box(
@@ -375,7 +414,7 @@ class MainWindow(QMainWindow):
 
         self._undo_stack.append(box_id)
         self._reload_boxes()
-        self._toast.show_message("Box added — F/G/H occlusion, T truncated", "success")
+        self._toast.show_message(t("toast.box_added_hint"), "success")
 
     # ── Occlusion / truncated ──
 
@@ -422,8 +461,9 @@ class MainWindow(QMainWindow):
         if not self._current_frame or index >= len(self._current_frame.boxes):
             return
         box = self._current_frame.boxes[index]
-        if box.category in (Category.ATLETICO_PLAYER, Category.ATLETICO_GK):
-            popup = PlayerPopup(self._roster, self)
+        roster = self._get_roster_for_category(box.category)
+        if roster:
+            popup = PlayerPopup(roster, self)
             self._shortcuts.set_popup_open(True)
             result = popup.exec()
             self._shortcuts.set_popup_open(False)
@@ -483,7 +523,7 @@ class MainWindow(QMainWindow):
         exported = self._exporter.export_frame(self._current_frame, self._session_id)
         self._frames[self._current_row]["status"] = "annotated"
         self._filmstrip.update_status(self._current_row, "annotated")
-        self._toast.show_message(f"Exported: {exported}", "success")
+        self._toast.show_message(t("toast.exported", exported=exported), "success")
         self._update_progress()
         QTimer.singleShot(300, self._advance_to_next_unviewed)
 
@@ -493,12 +533,12 @@ class MainWindow(QMainWindow):
         self._db.set_frame_status(self._current_frame.id, FrameStatus.SKIPPED)
         self._frames[self._current_row]["status"] = "skipped"
         self._filmstrip.update_status(self._current_row, "skipped")
-        self._toast.show_message("Frame skipped", "skip")
+        self._toast.show_message(t("toast.frame_skipped"), "skip")
         QTimer.singleShot(300, self._advance_to_next_unviewed)
 
     def _force_save(self):
         self._save_metadata()
-        self._toast.show_message("Saved", "info")
+        self._toast.show_message(t("toast.saved"), "info")
 
     # ── Helpers ──
 
@@ -523,17 +563,15 @@ class MainWindow(QMainWindow):
         output_path = os.path.join(self._folder_path, "output")
         stats = self._db.get_session_stats(self._session_id)
         msg = QMessageBox(self)
-        msg.setWindowTitle("All Done!")
+        msg.setWindowTitle(t("dialog.completion_title"))
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.setText("All frames have been processed!")
+        msg.setText(t("dialog.completion_message"))
         msg.setInformativeText(
-            f"Annotated: {stats['annotated']}    Skipped: {stats['skipped']}\n\n"
-            f"Output saved to:\n{output_path}\n\n"
-            f"  frames/         — Clean renamed images\n"
-            f"  annotations/  — COCO JSON per frame\n"
-            f"  crops/            — Cropped player images\n"
-            f"  coco_dataset.json  — Combined dataset\n"
-            f"  summary.json           — Statistics"
+            t("completion.annotated", annotated=stats["annotated"], skipped=stats["skipped"])
+            + "\n\n"
+            + t("completion.output_path", path=output_path)
+            + "\n\n"
+            + t("completion.folder_list")
         )
         msg.setStyleSheet("QMessageBox { background: #2A2A2A; } "
                           "QLabel { color: #EEE; font-size: 13px; }")

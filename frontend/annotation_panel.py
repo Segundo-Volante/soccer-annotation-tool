@@ -5,12 +5,13 @@ from PyQt6.QtWidgets import (
     QScrollArea, QFrame,
 )
 
+from backend.i18n import t
 from backend.models import BoundingBox, Category, CATEGORY_NAMES, Occlusion
 
 CATEGORY_COLORS = {
-    Category.ATLETICO_PLAYER: QColor("#E74C3C"),
+    Category.HOME_PLAYER: QColor("#E74C3C"),
     Category.OPPONENT: QColor("#3498DB"),
-    Category.ATLETICO_GK: QColor("#E67E22"),
+    Category.HOME_GK: QColor("#E67E22"),
     Category.OPPONENT_GK: QColor("#2980B9"),
     Category.REFEREE: QColor("#F1C40F"),
     Category.BALL: QColor("#2ECC71"),
@@ -30,7 +31,7 @@ class AnnotationPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        self._title = QLabel("Annotations")
+        self._title = QLabel(t("panel.annotations_title"))
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title.setStyleSheet("color: #EEE; font-weight: bold; font-size: 13px;")
         layout.addWidget(self._title)
@@ -45,7 +46,7 @@ class AnnotationPanel(QWidget):
         self._list.itemDoubleClicked.connect(self._on_double_click)
         layout.addWidget(self._list)
 
-        self._delete_btn = QPushButton("Delete Selected")
+        self._delete_btn = QPushButton(t("button.delete_selected"))
         self._delete_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._delete_btn.setStyleSheet("""
             QPushButton { background: #C0392B; color: white; padding: 6px;
@@ -62,33 +63,33 @@ class AnnotationPanel(QWidget):
         layout.addWidget(sep)
 
         help_label = QLabel(
-            "<b style='color:#FFA500;'>SHORTCUTS</b><br>"
+            f"<b style='color:#FFA500;'>{t('help.shortcuts_title')}</b><br>"
             "<br>"
-            "<b style='color:#AAA;'>Category (after draw)</b><br>"
-            "<span style='color:#E74C3C;'>1</span> Atletico Player<br>"
-            "<span style='color:#3498DB;'>2</span> Opponent<br>"
-            "<span style='color:#E67E22;'>3</span> Atletico GK<br>"
-            "<span style='color:#2980B9;'>4</span> Opponent GK<br>"
-            "<span style='color:#F1C40F;'>5</span> Referee<br>"
-            "<span style='color:#2ECC71;'>6</span> Ball<br>"
+            f"<b style='color:#AAA;'>{t('help.category_label')}</b><br>"
+            f"<span style='color:#E74C3C;'>1</span> {t('help.category_home_player')}<br>"
+            f"<span style='color:#3498DB;'>2</span> {t('help.category_opponent')}<br>"
+            f"<span style='color:#E67E22;'>3</span> {t('help.category_home_gk')}<br>"
+            f"<span style='color:#2980B9;'>4</span> {t('help.category_opponent_gk')}<br>"
+            f"<span style='color:#F1C40F;'>5</span> {t('help.category_referee')}<br>"
+            f"<span style='color:#2ECC71;'>6</span> {t('help.category_ball')}<br>"
             "<br>"
-            "<b style='color:#AAA;'>Metadata</b><br>"
+            f"<b style='color:#AAA;'>{t('help.metadata_label')}</b><br>"
             "<span style='color:#F5A623;'>Tab</span> Next dimension<br>"
             "<span style='color:#F5A623;'>Shift+Tab</span> Prev dimension<br>"
             "<span style='color:#CCC;'>1-9</span> Select option<br>"
             "<br>"
-            "<b style='color:#AAA;'>Occlusion</b><br>"
-            "<span style='color:#CCC;'>F</span> Visible &nbsp;"
-            "<span style='color:#CCC;'>G</span> Partial &nbsp;"
-            "<span style='color:#CCC;'>H</span> Heavy<br>"
+            f"<b style='color:#AAA;'>{t('help.occlusion_label')}</b><br>"
+            f"<span style='color:#CCC;'>F</span> {t('help.occlusion_visible')} &nbsp;"
+            f"<span style='color:#CCC;'>G</span> {t('help.occlusion_partial')} &nbsp;"
+            f"<span style='color:#CCC;'>H</span> {t('help.occlusion_heavy')}<br>"
             "<span style='color:#CCC;'>T</span> Toggle truncated<br>"
             "<br>"
-            "<b style='color:#AAA;'>Navigation</b><br>"
-            "<span style='color:#4A90D9;'>Enter</span> Export + next<br>"
-            "<span style='color:#D94A4A;'>Esc</span> Skip + next<br>"
-            "<span style='color:#CCC;'>\u2190 \u2192</span> Prev / Next frame<br>"
-            "<span style='color:#CCC;'>Ctrl+Z</span> Undo last box<br>"
-            "<span style='color:#CCC;'>Del</span> Delete selected"
+            f"<b style='color:#AAA;'>{t('help.navigation_label')}</b><br>"
+            f"<span style='color:#4A90D9;'>Enter</span> {t('help.export_next')}<br>"
+            f"<span style='color:#D94A4A;'>Esc</span> {t('help.skip_next')}<br>"
+            f"<span style='color:#CCC;'>\u2190 \u2192</span> {t('help.prev_next_frame')}<br>"
+            f"<span style='color:#CCC;'>Ctrl+Z</span> {t('help.undo_last_box')}<br>"
+            f"<span style='color:#CCC;'>Del</span> {t('help.delete_selected')}"
         )
         help_label.setWordWrap(True)
         help_label.setStyleSheet("color: #999; font-size: 11px; padding: 4px;")
@@ -112,7 +113,7 @@ class AnnotationPanel(QWidget):
 
     def _format_box(self, box: BoundingBox) -> str:
         cat = box.category
-        if cat in (Category.ATLETICO_PLAYER, Category.ATLETICO_GK):
+        if cat in (Category.HOME_PLAYER, Category.HOME_GK):
             num = box.jersey_number or "?"
             name = box.player_name or ""
             parts = name.split()

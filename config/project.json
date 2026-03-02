@@ -1,0 +1,24 @@
+{
+  "team_name": "Atletico de Madrid",
+  "season": "2024-25",
+  "language": "en",
+  "competitions": [
+    "LaLiga", "LaLiga2", "CopadelRey", "Supercopa",
+    "EPL", "EFL_Championship", "FA_Cup", "EFL_Cup",
+    "Ligue1", "Ligue2", "CoupeDeFrance", "TropheeDesChampions",
+    "SerieA", "SerieB", "CoppaItalia", "SupercoppaItaliana",
+    "Bundesliga", "Bundesliga2", "DFB_Pokal", "DFL_Supercup",
+    "LigaPortugal", "LigaPortugal2", "TacaDePortugal", "Supertaca",
+    "Eredivisie", "EersteDivisie", "KNVB_Beker", "JohanCruyffSchaal",
+    "UCL", "UEL", "UECL",
+    "Friendly"
+  ],
+  "categories": [
+    {"id": 0, "key": "home_player", "label": "{home} Player", "color": "#E53935", "roster": "home"},
+    {"id": 1, "key": "opponent", "label": "Opponent", "color": "#1E88E5", "roster": "opponent_auto"},
+    {"id": 2, "key": "home_gk", "label": "{home} GK", "color": "#FF9800", "roster": "home"},
+    {"id": 3, "key": "opponent_gk", "label": "Opponent GK", "color": "#0D47A1", "roster": "opponent_auto"},
+    {"id": 4, "key": "referee", "label": "Referee", "color": "#FDD835", "roster": "none"},
+    {"id": 5, "key": "ball", "label": "Ball", "color": "#43A047", "roster": "none"}
+  ]
+}

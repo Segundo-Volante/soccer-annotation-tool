@@ -1,8 +1,8 @@
 {
   "categories": [
-    {"id": 0, "name": "atletico_player", "color": "#FF4444", "key": "1"},
+    {"id": 0, "name": "home_player", "color": "#FF4444", "key": "1"},
     {"id": 1, "name": "opponent",        "color": "#FFFFFF", "key": "2"},
-    {"id": 2, "name": "atletico_gk",     "color": "#FFD700", "key": "3"},
+    {"id": 2, "name": "home_gk",     "color": "#FFD700", "key": "3"},
     {"id": 3, "name": "opponent_gk",     "color": "#44BB44", "key": "4"},
     {"id": 4, "name": "referee",         "color": "#888888", "key": "5"},
     {"id": 5, "name": "ball",            "color": "#FF8800", "key": "6"}
