@@ -62,7 +62,21 @@ class AnnotationPanel(QWidget):
         sep.setStyleSheet("color: #555;")
         layout.addWidget(sep)
 
-        help_label = QLabel(
+        self._help_label = QLabel()
+        self._help_label.setWordWrap(True)
+        self._help_label.setStyleSheet("color: #999; font-size: 11px; padding: 4px;")
+        layout.addWidget(self._help_label)
+
+        self._update_help_text()
+
+    def retranslate_ui(self):
+        """Refresh all translatable labels after language change."""
+        self._title.setText(t("panel.annotations_title"))
+        self._delete_btn.setText(t("button.delete_selected"))
+        self._update_help_text()
+
+    def _update_help_text(self):
+        self._help_label.setText(
             f"<b style='color:#FFA500;'>{t('help.shortcuts_title')}</b><br>"
             "<br>"
             f"<b style='color:#AAA;'>{t('help.category_label')}</b><br>"
@@ -74,15 +88,15 @@ class AnnotationPanel(QWidget):
             f"<span style='color:#2ECC71;'>6</span> {t('help.category_ball')}<br>"
             "<br>"
             f"<b style='color:#AAA;'>{t('help.metadata_label')}</b><br>"
-            "<span style='color:#F5A623;'>Tab</span> Next dimension<br>"
-            "<span style='color:#F5A623;'>Shift+Tab</span> Prev dimension<br>"
-            "<span style='color:#CCC;'>1-9</span> Select option<br>"
+            f"<span style='color:#F5A623;'>Tab</span> {t('help.next_dimension')}<br>"
+            f"<span style='color:#F5A623;'>Shift+Tab</span> {t('help.prev_dimension')}<br>"
+            f"<span style='color:#CCC;'>1-9</span> {t('help.select_option')}<br>"
             "<br>"
             f"<b style='color:#AAA;'>{t('help.occlusion_label')}</b><br>"
             f"<span style='color:#CCC;'>F</span> {t('help.occlusion_visible')} &nbsp;"
             f"<span style='color:#CCC;'>G</span> {t('help.occlusion_partial')} &nbsp;"
             f"<span style='color:#CCC;'>H</span> {t('help.occlusion_heavy')}<br>"
-            "<span style='color:#CCC;'>T</span> Toggle truncated<br>"
+            f"<span style='color:#CCC;'>T</span> {t('help.toggle_truncated')}<br>"
             "<br>"
             f"<b style='color:#AAA;'>{t('help.navigation_label')}</b><br>"
             f"<span style='color:#4A90D9;'>Enter</span> {t('help.export_next')}<br>"
@@ -91,9 +105,6 @@ class AnnotationPanel(QWidget):
             f"<span style='color:#CCC;'>Ctrl+Z</span> {t('help.undo_last_box')}<br>"
             f"<span style='color:#CCC;'>Del</span> {t('help.delete_selected')}"
         )
-        help_label.setWordWrap(True)
-        help_label.setStyleSheet("color: #999; font-size: 11px; padding: 4px;")
-        layout.addWidget(help_label)
 
     def update_boxes(self, boxes: list[BoundingBox]):
         self._list.blockSignals(True)
@@ -122,7 +133,7 @@ class AnnotationPanel(QWidget):
         else:
             line = CATEGORY_NAMES.get(cat, "unknown")
 
-        occ = box.occlusion.value
+        occ = t(f"occlusion.{box.occlusion.value}")
         if box.truncated:
             occ += " [T]"
         return f"{line}  ({occ})"

@@ -76,11 +76,15 @@ class MainWindow(QMainWindow):
         """Capture all key presses app-wide so shortcuts work even when
         buttons or other widgets have focus."""
         if event.type() == QEvent.Type.KeyPress:
+            # Skip shortcuts when a dialog is active (session dialog, popups, etc.)
+            active_window = QApplication.instance().activeWindow()
+            if active_window is not self:
+                return False
             if self._shortcuts._popup_open:
                 return False
-            from PyQt6.QtWidgets import QLineEdit
+            from PyQt6.QtWidgets import QLineEdit, QComboBox
             focused = QApplication.instance().focusWidget()
-            if isinstance(focused, QLineEdit):
+            if isinstance(focused, (QLineEdit, QComboBox)):
                 return False
             if self._shortcuts.handle_key(event):
                 return True
@@ -172,9 +176,15 @@ class MainWindow(QMainWindow):
             # Reload config after wizard
             self._project_config = ProjectConfig(config_dir)
 
+        lang_before = I18n.lang()
         dialog = SessionDialog(self, project_config=self._project_config)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             result = dialog.get_result()
+
+            # If language changed in session dialog, refresh all UI strings
+            if result.get("language", lang_before) != lang_before:
+                self._retranslate_ui()
+
             # Load home roster from session result or project config
             roster_path = result.get("roster", "")
             if not roster_path and self._project_config.exists:
@@ -194,6 +204,14 @@ class MainWindow(QMainWindow):
                 result.get("weather", "clear"),
                 result.get("lighting", "floodlight"),
             )
+
+    def _retranslate_ui(self):
+        """Refresh all translatable strings in main window and child widgets."""
+        self.setWindowTitle(t("main.window_title"))
+        self._annotation_panel.retranslate_ui()
+        self._metadata_bar.retranslate_ui()
+        # Canvas uses t() in paintEvent, so just repaint
+        self._canvas.update()
 
     def _start_session(self, folder: str, source: str, match_round: str,
                        opponent: str = "", weather: str = "clear",

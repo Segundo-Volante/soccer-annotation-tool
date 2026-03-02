@@ -206,21 +206,24 @@ class SessionDialog(QDialog):
 
         # Build session-level radio groups dynamically from config array
         self._session_groups: dict[str, QButtonGroup] = {}
+        self._session_boxes: list[QGroupBox] = []
         for dim in self._meta_opts.get("session_level", []):
             key = dim["key"]
-            label = dim.get("label", key.replace("_", " ").title())
+            label = t(f"meta.label.{key}")
             options = dim.get("options", [])
             group = QButtonGroup(self)
             box = QGroupBox(label)
+            box.setProperty("meta_key", key)
             box_layout = QHBoxLayout(box)
             for i, opt in enumerate(options):
-                rb = QRadioButton(opt.replace("_", " ").title())
+                rb = QRadioButton(t(f"meta.opt.{opt}"))
                 rb.setProperty("value", opt)
                 group.addButton(rb, i)
                 box_layout.addWidget(rb)
                 if i == 0:
                     rb.setChecked(True)
             self._session_groups[key] = group
+            self._session_boxes.append(box)
             layout.addWidget(box)
 
         # Set better defaults for known keys
@@ -302,6 +305,15 @@ class SessionDialog(QDialog):
         self._opponent_combo.lineEdit().setPlaceholderText(t("session.opponent_placeholder"))
         self._defaults_label.setText(t("session.defaults_label"))
         self._start_btn.setText(t("button.start_annotating"))
+
+        # Update session-level radio group labels and option text
+        for box in self._session_boxes:
+            key = box.property("meta_key")
+            box.setTitle(t(f"meta.label.{key}"))
+        for key, group in self._session_groups.items():
+            for btn in group.buttons():
+                opt_val = btn.property("value")
+                btn.setText(t(f"meta.opt.{opt_val}"))
 
         self._update_lang_buttons()
 

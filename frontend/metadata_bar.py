@@ -72,6 +72,10 @@ class MetadataBar(QWidget):
         self._update_pills()
         self._update_options()
 
+    def retranslate_ui(self):
+        """Refresh translatable labels after language change."""
+        self._hint.setText(t("metadata.keyboard_hint"))
+
     # ── Public API ──
 
     def cycle_dim(self, forward: bool = True):
@@ -121,8 +125,9 @@ class MetadataBar(QWidget):
         for i, (pill, dim) in enumerate(zip(self._pills, self._dimensions)):
             key = dim["key"]
             val = self._values.get(key, dim["default"])
-            display_val = val.replace("_", " ")
-            pill.setText(f"{dim['label']}: {display_val}")
+            display_label = t(f"meta.label.{key}")
+            display_val = t(f"meta.opt.{val}")
+            pill.setText(f"{display_label}: {display_val}")
             if i == self._active_dim:
                 pill.setStyleSheet(
                     "QPushButton {"
@@ -154,7 +159,7 @@ class MetadataBar(QWidget):
 
         for i, opt in enumerate(dim["options"]):
             num = i + 1
-            display = opt.replace("_", " ")
+            display = t(f"meta.opt.{opt}")
             is_selected = (opt == current_val)
             is_skip = opt in dim.get("auto_skip", [])
 
