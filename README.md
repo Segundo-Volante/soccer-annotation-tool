@@ -6,6 +6,14 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.5+-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
+---
+
+> I just wanted to create something that lets more people who are truly passionate about football AI focus on what matters -- without getting stuck in tedious technical details. You can annotate your data quickly and jump straight into building models.
+>
+> The tool was originally made to finish my Course Project, and now it's open-sourced in the hope that it can actually help others. Any suggestions, bug reports, or feature requests are super welcome! I'll update it as much as I can.
+
+---
+
 ## Features
 
 - **First-run setup wizard** -- Configure team name, season, roster CSV, and competitions on first launch
@@ -241,6 +249,116 @@ Only metadata dimensions with `"in_filename": true` appear in the filename:
 ```
 
 Example: `LaLiga_R15_clear_floodlight_wide_static_open-play_0001.png`
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            main.py                                  │
+│                  (Entry point, exception hook, logging)              │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│  ┌───────────────────── FRONTEND (PyQt6) ────────────────────────┐  │
+│  │                                                               │  │
+│  │   ┌──────────────┐   ┌──────────────┐   ┌────────────────┐   │  │
+│  │   │ SetupWizard  │──▶│SessionDialog │──▶│   MainWindow   │   │  │
+│  │   │ (first run)  │   │(session cfg) │   │ (orchestrator) │   │  │
+│  │   └──────────────┘   └──────────────┘   └───────┬────────┘   │  │
+│  │                                                  │            │  │
+│  │                    ┌─────────────┬───────────────┼────────┐   │  │
+│  │                    ▼             ▼               ▼        ▼   │  │
+│  │              ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────┐  │  │
+│  │              │  Canvas  │ │Annotation│ │ Metadata │ │Film │  │  │
+│  │              │ (draw +  │ │  Panel   │ │   Bar    │ │strip│  │  │
+│  │              │  interact│ │(box list)│ │(Tab+Num) │ │     │  │  │
+│  │              └──────────┘ └──────────┘ └──────────┘ └─────┘  │  │
+│  │                                                               │  │
+│  │        ┌──────────────┐  ┌───────┐  ┌────────────────────┐   │  │
+│  │        │ PlayerPopup  │  │ Toast │  │ DetectionOverlay   │   │  │
+│  │        │(jersey input)│  │       │  │ (AI progress bar)  │   │  │
+│  │        └──────────────┘  └───────┘  └────────────────────┘   │  │
+│  │                                                               │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                               │                                     │
+│                     signals / method calls                          │
+│                               │                                     │
+│  ┌───────────────────── BACKEND (Pure Python) ───────────────────┐  │
+│  │                                                               │  │
+│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │  │
+│  │   │   Database    │  │   Exporter   │  │  ModelManager    │   │  │
+│  │   │  (SQLite +   │  │ (COCO JSON + │  │ (YOLO / RT-DETR  │   │  │
+│  │   │   WAL mode)  │  │  Re-ID crops)│  │  AI detection)   │   │  │
+│  │   └──────────────┘  └──────────────┘  └──────────────────┘   │  │
+│  │                                                               │  │
+│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │  │
+│  │   │   Models     │  │RosterManager │  │  ProjectConfig   │   │  │
+│  │   │ (BoundingBox,│  │ (CSV roster  │  │ (project.json,   │   │  │
+│  │   │  FrameAnnot) │  │  + lookup)   │  │  teams, i18n)    │   │  │
+│  │   └──────────────┘  └──────────────┘  └──────────────────┘   │  │
+│  │                                                               │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                               │                                     │
+│                               ▼                                     │
+│  ┌───────────────────── CONFIG (JSON files) ─────────────────────┐  │
+│  │                                                               │  │
+│  │  project.json  │  metadata_options.json  │  i18n/{lang}.json  │  │
+│  │  teams/home.json  │  teams/opponents/*.csv  │  categories.json │  │
+│  │                                                               │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+```
+User launches app
+  │
+  ├──▶ First run?  ──YES──▶  SetupWizard  ──▶  writes config/project.json
+  │                                               │
+  ▼                                               ▼
+SessionDialog (folder, roster, opponent, weather, lighting, AI model)
+  │
+  ▼
+Database creates session ──▶ FileManager scans folder ──▶ frames loaded
+  │
+  ▼
+┌─────────────── ANNOTATION LOOP (per frame) ───────────────┐
+│                                                           │
+│  ┌─ Manual Mode ──────────────────────────────────────┐   │
+│  │  Draw box on Canvas ──▶ press 1-6 ──▶ assign       │   │
+│  │  category ──▶ PlayerPopup (jersey #) ──▶ save box  │   │
+│  └────────────────────────────────────────────────────┘   │
+│                                                           │
+│  ┌─ AI-Assisted Mode ────────────────────────────────┐   │
+│  │  Frame loads ──▶ YOLO runs in background thread    │   │
+│  │  ──▶ amber PENDING boxes appear ──▶ user reviews   │   │
+│  │  ──▶ resize / delete / press 1-6 to assign         │   │
+│  │  ──▶ Ctrl+1-6 bulk assign ──▶ all boxes finalized  │   │
+│  └────────────────────────────────────────────────────┘   │
+│                                                           │
+│  Set metadata (Tab to cycle, number to pick)              │
+│  Enter = export frame  │  Esc = skip  │  ←/→ = navigate  │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+  │
+  ▼
+Exporter reads DB ──▶ COCO JSON + renamed frames + Re-ID crops
+```
+
+### Key Design Decisions
+
+- **Keyboard-first** -- Every action is mapped to a key. Mouse is only used for drawing and resizing boxes. This keeps annotation speed at 5-10 seconds per frame.
+- **SQLite with WAL mode** -- All annotations auto-save in real time. Crash-safe. Resume any session by reopening its folder.
+- **Metadata as JSON blob** -- Frame-level metadata is stored as a flexible JSON column, making it easy to add new dimensions without schema migrations.
+- **AI is optional** -- The core tool works without any AI dependencies. Install `requirements-ai.txt` only if you want auto-detection.
+- **Background-thread detection** -- YOLO inference runs on a separate QThread so the UI never freezes during AI detection.
+- **Config-driven** -- Categories, metadata dimensions, competitions, and languages are all defined in JSON config files. No code changes needed to customize.
+
+---
 
 ## Project Structure
 
