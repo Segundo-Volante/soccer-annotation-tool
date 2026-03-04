@@ -27,8 +27,12 @@ class ShortcutHandler(QObject):
     # Navigation
     export_advance = pyqtSignal()        # Enter
     skip_advance = pyqtSignal()          # Escape
-    prev_frame = pyqtSignal()            # Left
-    next_frame = pyqtSignal()            # Right
+    prev_frame = pyqtSignal()            # Left (when not zoomed)
+    next_frame = pyqtSignal()            # Right (when not zoomed)
+    pan_left = pyqtSignal()              # Left (when zoomed)
+    pan_right = pyqtSignal()             # Right (when zoomed)
+    pan_up = pyqtSignal()                # Up (when zoomed)
+    pan_down = pyqtSignal()              # Down (when zoomed)
 
     # Edit
     undo = pyqtSignal()                  # Ctrl+Z
@@ -44,9 +48,18 @@ class ShortcutHandler(QObject):
     open_review = pyqtSignal()           # Ctrl+R
     open_export_preview = pyqtSignal()   # Ctrl+E
 
+    # Box visibility
+    cycle_box_visibility = pyqtSignal()  # B
+
+    # Zoom
+    zoom_in = pyqtSignal()               # Cmd/Ctrl + (or =)
+    zoom_out = pyqtSignal()              # Cmd/Ctrl -
+    reset_zoom = pyqtSignal()            # 0
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._popup_open = False
+        self._is_zoomed_fn = None  # callable returning True if canvas is zoomed in
 
     def set_popup_open(self, is_open: bool):
         self._popup_open = is_open
@@ -96,6 +109,14 @@ class ShortcutHandler(QObject):
             self.open_export_preview.emit()
             return True
 
+        # Ctrl+Plus / Ctrl+Equal → zoom in, Ctrl+Minus → zoom out
+        if ctrl and key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self.zoom_in.emit()
+            return True
+        if ctrl and key == Qt.Key.Key_Minus:
+            self.zoom_out.emit()
+            return True
+
         # Tab / Shift+Tab → cycle metadata dimension
         if key == Qt.Key.Key_Tab:
             self.cycle_dimension.emit(not shift)  # Tab=forward, Shift+Tab=backward
@@ -104,13 +125,34 @@ class ShortcutHandler(QObject):
             self.cycle_dimension.emit(False)
             return True
 
+        # 0 key → reset zoom
+        if not ctrl and key == Qt.Key.Key_0:
+            self.reset_zoom.emit()
+            return True
+
         # Number keys 1-9 (non-Ctrl)
         if not ctrl and key in number_keys:
             self.number_pressed.emit(number_keys[key])
             return True
 
+        # Arrow keys: pan when zoomed, navigate when not
+        zoomed = self._is_zoomed_fn() if self._is_zoomed_fn else False
+        if key == Qt.Key.Key_Left:
+            (self.pan_left if zoomed else self.prev_frame).emit()
+            return True
+        if key == Qt.Key.Key_Right:
+            (self.pan_right if zoomed else self.next_frame).emit()
+            return True
+        if key == Qt.Key.Key_Up and zoomed:
+            self.pan_up.emit()
+            return True
+        if key == Qt.Key.Key_Down and zoomed:
+            self.pan_down.emit()
+            return True
+
         # Simple key mapping
         mapping = {
+            Qt.Key.Key_B: self.cycle_box_visibility,
             Qt.Key.Key_F: self.occlusion_visible,
             Qt.Key.Key_G: self.occlusion_partial,
             Qt.Key.Key_H: self.occlusion_heavy,
@@ -118,8 +160,6 @@ class ShortcutHandler(QObject):
             Qt.Key.Key_Return: self.export_advance,
             Qt.Key.Key_Enter: self.export_advance,
             Qt.Key.Key_Escape: self.skip_advance,
-            Qt.Key.Key_Left: self.prev_frame,
-            Qt.Key.Key_Right: self.next_frame,
             Qt.Key.Key_Delete: self.delete_box,
             Qt.Key.Key_Backspace: self.delete_box,
         }

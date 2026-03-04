@@ -42,6 +42,9 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 
 **Annotation**
 - Draw, move, and resize bounding boxes with category-colored outlines
+- 8-handle resize system (4 corners + 4 edge midpoints) for precise box adjustment
+- Scroll wheel zoom centered on cursor, Cmd/Ctrl+=/- keyboard zoom, arrow key panning
+- Three box visibility modes (Full / Subtle / Hidden) to reduce visual clutter
 - Keyboard-first workflow -- every action mapped to a key (5-10s per frame)
 - Player roster auto-fill from CSV (type jersey number, name fills automatically)
 - 6 configurable metadata dimensions per frame (shot, camera, ball, situation, zone, quality)
@@ -432,7 +435,20 @@ Exporter reads DB ──▶ COCO JSON / YOLO TXT + renamed frames + Re-ID crops
 |-----|--------|
 | `Enter` | Export frame + advance |
 | `Esc` | Skip frame + advance |
-| `Left` / `Right` | Previous / next frame |
+| `Left` / `Right` | Previous / next frame (navigate when not zoomed) |
+
+### Zoom & View
+
+| Key | Action |
+|-----|--------|
+| `Scroll wheel` / `Trackpad pinch` | Zoom in/out centered on cursor |
+| `Cmd/Ctrl` + `=` | Zoom in (centered on mouse cursor) |
+| `Cmd/Ctrl` + `-` | Zoom out (centered on mouse cursor) |
+| `Arrow keys` (when zoomed) | Pan view |
+| `Space` + drag / Middle-click drag | Pan view |
+| `0` | Reset zoom to fit |
+| `Double-click empty area` | Reset zoom |
+| `B` | Cycle box visibility (Full / Subtle / Hidden) |
 
 ### AI Mode
 

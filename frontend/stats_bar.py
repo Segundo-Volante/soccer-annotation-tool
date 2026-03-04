@@ -37,6 +37,14 @@ class StatsBar(QWidget):
 
         layout.addStretch()
 
+        self._zoom_label = QLabel("100%")
+        self._zoom_label.setStyleSheet("color: #7EB8DA; font-size: 11px; font-weight: bold;")
+        layout.addWidget(self._zoom_label)
+
+        self._box_vis_label = QLabel("Boxes: Full")
+        self._box_vis_label.setStyleSheet("color: #A0A0C0; font-size: 11px; font-weight: bold;")
+        layout.addWidget(self._box_vis_label)
+
         self._today_label = QLabel()
         self._today_label.setStyleSheet("color: #8888A0; font-size: 11px;")
         layout.addWidget(self._today_label)
@@ -47,6 +55,14 @@ class StatsBar(QWidget):
         self._timer.start(1000)
 
         self.refresh()
+
+    def set_box_visibility_label(self, text: str):
+        """Update the box visibility mode indicator."""
+        self._box_vis_label.setText(text)
+
+    def set_zoom_label(self, percent: int):
+        """Update the zoom level indicator."""
+        self._zoom_label.setText(f"{percent}%")
 
     def refresh(self):
         """Update all stat labels from the SessionStats object."""

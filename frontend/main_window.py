@@ -241,6 +241,20 @@ class MainWindow(QMainWindow):
         if obj is self._canvas and event.type() == QEvent.Type.Resize:
             self._detection_overlay.setGeometry(self._canvas.rect())
 
+        # Reset space-held when window loses focus (prevents stuck state)
+        if event.type() == QEvent.Type.WindowDeactivate:
+            self._canvas.set_space_held(False)
+
+        # Track Space key for pan mode (press and release)
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Space:
+            if not event.isAutoRepeat():
+                self._canvas.set_space_held(True)
+            return True
+        if event.type() == QEvent.Type.KeyRelease and event.key() == Qt.Key.Key_Space:
+            if not event.isAutoRepeat():
+                self._canvas.set_space_held(False)
+            return True
+
         if event.type() == QEvent.Type.KeyPress:
             # Skip shortcuts when a dialog is active (session dialog, popups, etc.)
             active_window = QApplication.instance().activeWindow()
@@ -428,9 +442,50 @@ class MainWindow(QMainWindow):
         self._shortcuts.open_review.connect(self._open_review_panel)
         self._shortcuts.open_export_preview.connect(self._open_export_preview)
 
+        # Box visibility toggle
+        self._shortcuts.cycle_box_visibility.connect(self._cycle_box_visibility)
+
+        # Zoom
+        self._shortcuts.zoom_in.connect(self._canvas.zoom_in_step)
+        self._shortcuts.zoom_out.connect(self._canvas.zoom_out_step)
+        self._shortcuts.reset_zoom.connect(self._reset_zoom)
+        self._canvas.zoom_changed.connect(self._on_zoom_changed)
+
+        # Arrow-key panning (when zoomed in)
+        pan_step = 80  # pixels per arrow key press
+        self._shortcuts.pan_left.connect(lambda: self._canvas.pan_by(pan_step, 0))
+        self._shortcuts.pan_right.connect(lambda: self._canvas.pan_by(-pan_step, 0))
+        self._shortcuts.pan_up.connect(lambda: self._canvas.pan_by(0, pan_step))
+        self._shortcuts.pan_down.connect(lambda: self._canvas.pan_by(0, -pan_step))
+
+        # Tell shortcuts handler how to check zoom state
+        self._shortcuts._is_zoomed_fn = lambda: self._canvas.zoom_level > 1.0
+
     def keyPressEvent(self, event):
         if not self._shortcuts.handle_key(event):
             super().keyPressEvent(event)
+
+    def _cycle_box_visibility(self):
+        from frontend.canvas import BoxVisibilityMode
+        self._canvas.cycle_box_visibility()
+        mode = self._canvas.box_visibility
+        labels = {
+            BoxVisibilityMode.FULL: "Boxes: Full",
+            BoxVisibilityMode.SUBTLE: "Boxes: Subtle",
+            BoxVisibilityMode.CLEAN: "Boxes: Hidden",
+        }
+        label = labels[mode]
+        if self._stats_bar:
+            self._stats_bar.set_box_visibility_label(label)
+        if hasattr(self, '_toast') and self._toast:
+            self._toast.show_message(label, "info", 1500)
+
+    def _reset_zoom(self):
+        self._canvas.reset_zoom()
+
+    def _on_zoom_changed(self, percent: int):
+        if self._stats_bar:
+            self._stats_bar.set_zoom_label(percent)
 
     # ── Session management ──
 
