@@ -110,6 +110,7 @@ class AnnotationPanel(QWidget):
         self._list.clear()
         pending_count = 0
         unsure_count = 0
+        auto_count = 0
         finalized_count = 0
         for box in boxes:
             if box.box_status == BoxStatus.PENDING:
@@ -135,6 +136,14 @@ class AnnotationPanel(QWidget):
                     label += f" [{note_preview}]"
                 item = QListWidgetItem(label)
                 item.setForeground(QColor("#FF6B35"))
+            elif box.box_status == BoxStatus.AUTO:
+                auto_count += 1
+                cat_name = CATEGORY_NAMES.get(box.category, "unknown")
+                conf = f" ({float(box.confidence):.2f})" if box.confidence else ""
+                label = f"[auto] {cat_name}{conf}"
+                item = QListWidgetItem(label)
+                color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
+                item.setForeground(color)
             else:
                 finalized_count += 1
                 label = self._format_box(box)
@@ -144,11 +153,13 @@ class AnnotationPanel(QWidget):
             self._list.addItem(item)
         self._list.blockSignals(False)
 
-        # Update pending/unsure counter
-        if pending_count > 0 or unsure_count > 0:
+        # Update pending/unsure/auto counter
+        if pending_count > 0 or unsure_count > 0 or auto_count > 0:
             parts = []
             if pending_count > 0:
                 parts.append(f"{pending_count} pending")
+            if auto_count > 0:
+                parts.append(f"{auto_count} auto")
             if unsure_count > 0:
                 parts.append(f"{unsure_count} unsure")
             counter_text = f"{len(boxes)} total \u2014 {', '.join(parts)}, {finalized_count} assigned"

@@ -73,7 +73,8 @@ class ShortcutsBar(QWidget):
             "<span style='color:#CCC'>Ctrl+H</span> Health  "
             "<span style='color:#CCC'>Ctrl+R</span> Review  "
             "<span style='color:#CCC'>Ctrl+E</span> Export  "
-            "<span style='color:#CCC'>Ctrl+S</span> Save"
+            "<span style='color:#CCC'>Ctrl+S</span> Save  "
+            "<span style='color:#CCC'>Ctrl+Shift+S</span> Swap Teams"
         ))
         row2.addStretch()
         outer.addLayout(row2)

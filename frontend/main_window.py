@@ -47,6 +47,7 @@ from frontend.setup_wizard import SetupWizard
 from frontend.shortcuts import ShortcutHandler
 from frontend.stats_bar import StatsBar, ShortcutsBar
 from frontend.toast import Toast
+from frontend.color_setup_dialog import ColorSetupDialog
 
 logger = logging.getLogger(__name__)
 
@@ -404,6 +405,16 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self._open_export_preview)
         tools_menu.addAction(export_action)
 
+        tools_menu.addSeparator()
+
+        swap_action = QAction("Swap Teams (Home \u2194 Away)\tCtrl+Shift+S", self)
+        swap_action.triggered.connect(self._swap_teams)
+        tools_menu.addAction(swap_action)
+
+        reconfig_colors_action = QAction("Reconfigure Team Colors", self)
+        reconfig_colors_action.triggered.connect(self._reconfigure_team_colors)
+        tools_menu.addAction(reconfig_colors_action)
+
         # Update menu visibility based on workflow
         self._update_menu_visibility()
 
@@ -457,6 +468,9 @@ class MainWindow(QMainWindow):
 
         # Box visibility toggle
         self._shortcuts.cycle_box_visibility.connect(self._cycle_box_visibility)
+
+        # Team color swap
+        self._shortcuts.swap_teams.connect(self._swap_teams)
 
         # Zoom
         self._shortcuts.zoom_in.connect(self._canvas.zoom_in_step)
@@ -622,6 +636,7 @@ class MainWindow(QMainWindow):
                        custom_model_path: str = ""):
         self._folder_path = folder
         self._annotation_mode = annotation_mode
+        self._team_colors: Optional[dict] = None
 
         # Session-level metadata to embed in every frame JSON
         self._session_meta = {
@@ -684,6 +699,10 @@ class MainWindow(QMainWindow):
         self._model_manager = None
         if self._annotation_mode == "ai_assisted":
             self._init_model_manager(model_name, model_confidence, custom_model_path)
+
+        # Team color setup for AI mode
+        if self._annotation_mode == "ai_assisted" and self._frames:
+            self._load_or_prompt_team_colors()
 
         # Setup exporter
         output_path = os.path.join(folder, "output")
@@ -1062,6 +1081,9 @@ class MainWindow(QMainWindow):
                 if box.box_status == BoxStatus.UNSURE:
                     self._assign_unsure_box(idx, categories[n - 1])
                     return
+                if box.box_status == BoxStatus.AUTO:
+                    self._assign_pending_ai_box(idx, categories[n - 1])
+                    return
 
         # 3) Otherwise → metadata option
         self._metadata_bar.select_option(n)
@@ -1398,6 +1420,17 @@ class MainWindow(QMainWindow):
                 pending_count += 1
 
         self._reload_boxes()
+
+        # Color-classify pending boxes if team colors are configured
+        if self._team_colors and pending_count > 0:
+            self._color_classify_pending_boxes()
+            # Recount pending after classification
+            if self._current_frame:
+                pending_count = sum(
+                    1 for b in self._current_frame.boxes
+                    if b.box_status == BoxStatus.PENDING
+                )
+
         total = len(detections)
         self._toast.show_message(
             t("ai.detection_complete", count=total, pending=pending_count),
@@ -1420,12 +1453,12 @@ class MainWindow(QMainWindow):
             self._detection_thread = None
 
     def _assign_pending_ai_box(self, index: int, category: Category):
-        """Assign a category to a selected PENDING AI box."""
+        """Assign a category to a selected PENDING or AUTO AI box."""
         if not self._current_frame or index >= len(self._current_frame.boxes):
             return
 
         box = self._current_frame.boxes[index]
-        if box.box_status != BoxStatus.PENDING:
+        if box.box_status not in (BoxStatus.PENDING, BoxStatus.AUTO):
             return
 
         jersey = None
@@ -2063,3 +2096,163 @@ class MainWindow(QMainWindow):
             self._state_db.save_clean_exit(True)
             self._state_db.close()
         super().closeEvent(event)
+
+    # ── Team Color Auto-Classification ──
+
+    def _load_or_prompt_team_colors(self):
+        """Load stored team colors or show the setup dialog."""
+        import json
+        if self._state_db:
+            stored = self._state_db.get_ui_state("team_colors", "")
+            if stored:
+                try:
+                    self._team_colors = json.loads(stored)
+                    logger.info("Loaded stored team colors: %s", self._team_colors)
+                    return
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        # Show color setup dialog
+        if not self._frames:
+            return
+        first_frame_path = os.path.join(self._folder_path, self._frames[0]["filename"])
+        if not os.path.exists(first_frame_path):
+            return
+
+        dialog = ColorSetupDialog(first_frame_path, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_result()
+            if result:
+                self._team_colors = result
+                if self._state_db:
+                    self._state_db.save_ui_state("team_colors", json.dumps(result))
+                logger.info("Team colors configured: %s", result)
+
+    def _reconfigure_team_colors(self):
+        """Re-open the team color setup dialog from menu."""
+        import json
+        if not self._folder_path or not self._frames:
+            self._toast.show_message("No session active", "warning")
+            return
+        first_frame_path = os.path.join(self._folder_path, self._frames[0]["filename"])
+        if not os.path.exists(first_frame_path):
+            return
+
+        dialog = ColorSetupDialog(first_frame_path, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_result()
+            if result:
+                self._team_colors = result
+                if self._state_db:
+                    self._state_db.save_ui_state("team_colors", json.dumps(result))
+                self._toast.show_message("Team colors updated", "success")
+                logger.info("Team colors reconfigured: %s", result)
+
+    def _color_classify_pending_boxes(self):
+        """Auto-classify PENDING boxes by jersey color after AI detection."""
+        import cv2
+        import numpy as np
+        from backend.color_classifier import classify_box_by_color
+
+        if not self._team_colors or not self._current_frame or not self._store:
+            return
+
+        home_hsv = np.array(self._team_colors["home_hsv"], dtype=np.float64)
+        away_hsv = np.array(self._team_colors["away_hsv"], dtype=np.float64)
+        ref_hsv = None
+        if self._team_colors.get("referee_hsv"):
+            ref_hsv = np.array(self._team_colors["referee_hsv"], dtype=np.float64)
+
+        # Load the frame image
+        frame_path = os.path.join(self._folder_path, self._current_filename)
+        image_bgr = cv2.imread(frame_path)
+        if image_bgr is None:
+            return
+
+        classified_count = 0
+        for box in self._current_frame.boxes:
+            if box.box_status != BoxStatus.PENDING:
+                continue
+
+            # Don't override referee/ball auto-assignments from football models
+            detected = box.detected_class or ""
+            if detected in ("referee", "ball"):
+                continue
+
+            # Crop the box region
+            x, y, w, h = box.x, box.y, box.width, box.height
+            ih, iw = image_bgr.shape[:2]
+            x1 = max(0, x)
+            y1 = max(0, y)
+            x2 = min(iw, x + w)
+            y2 = min(ih, y + h)
+            if x2 - x1 < 5 or y2 - y1 < 5:
+                continue
+
+            crop = image_bgr[y1:y2, x1:x2]
+            label, confidence = classify_box_by_color(crop, home_hsv, away_hsv, ref_hsv)
+
+            if label == "uncertain" or confidence < 0.5:
+                continue
+
+            # Map label to category
+            is_gk = detected == "goalkeeper"
+            if label == "home":
+                cat = Category.HOME_GK if is_gk else Category.HOME_PLAYER
+            elif label == "away":
+                cat = Category.OPPONENT_GK if is_gk else Category.OPPONENT
+            elif label == "referee":
+                cat = Category.REFEREE
+            else:
+                continue
+
+            self._store.update_box(
+                self._current_filename, box.id,
+                category=cat, box_status="auto",
+            )
+            classified_count += 1
+
+        if classified_count > 0:
+            self._reload_boxes()
+            logger.info("Auto-classified %d boxes by color", classified_count)
+
+    def _swap_teams(self):
+        """Swap home<->away and homeGK<->awayGK on the current frame."""
+        import json
+        if not self._current_frame or not self._current_filename or not self._store:
+            return
+
+        swap_map = {
+            Category.HOME_PLAYER: Category.OPPONENT,
+            Category.OPPONENT: Category.HOME_PLAYER,
+            Category.HOME_GK: Category.OPPONENT_GK,
+            Category.OPPONENT_GK: Category.HOME_GK,
+        }
+
+        swapped = 0
+        for box in self._current_frame.boxes:
+            new_cat = swap_map.get(box.category)
+            if new_cat is not None:
+                self._store.update_box(
+                    self._current_filename, box.id,
+                    category=new_cat,
+                )
+                swapped += 1
+
+        # Swap stored team colors
+        if self._team_colors:
+            home = self._team_colors.get("home_hsv")
+            away = self._team_colors.get("away_hsv")
+            if home and away:
+                self._team_colors["home_hsv"] = away
+                self._team_colors["away_hsv"] = home
+                if self._state_db:
+                    self._state_db.save_ui_state(
+                        "team_colors", json.dumps(self._team_colors)
+                    )
+
+        self._reload_boxes()
+        self._toast.show_message(
+            f"Teams swapped \u2014 home \u2194 away ({swapped} boxes)", "info", 2000
+        )
+        logger.info("Swapped %d boxes home<->away", swapped)

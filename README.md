@@ -4,7 +4,7 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.5+-green)
-![Tests](https://img.shields.io/badge/Tests-177_passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-218_passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ![Main Annotation View](screenshots/main_annotation_view.png)
@@ -227,13 +227,16 @@ python main.py
 ![AI Detection Example -- Away Match](screenshots/ai_detection_example2.png)
 
 1. **Navigate to a frame** -- AI detections appear automatically as **amber dashed boxes** labeled with class and confidence (e.g. "? person (0.92)"). A progress overlay shows the model name and elapsed time during detection.
-2. **Review detections** -- Click any amber box to select it. **Drag corners** to resize, or **drag the center** to move it. Delete incorrect detections with `Delete`.
-3. **Assign categories** -- Click a pending box and press **1-6** to assign it a category. For home players, the roster popup appears automatically for jersey number entry.
-4. **Bulk assign** -- Use **Ctrl+1-6** to assign all pending boxes to a category at once. With football models, **Ctrl+2** (Opponent) skips goalkeeper-detected boxes.
-5. **Accept all** -- Use **Ctrl+A** to accept all remaining pending boxes as Opponent (with confirmation dialog).
-6. **Auto-assigned classes** -- Football models automatically assign referees (key 5) and balls (key 6). Only player/goalkeeper boxes need manual assignment.
-7. **Export** -- Press **Enter** to export. Export is blocked while pending (unassigned) boxes remain.
-8. **Re-detect** -- Click **Re-detect** in the AI status bar to clear pending boxes and re-run detection on the current frame.
+2. **Team color setup** -- On the first AI session, a color setup dialog appears. Click on a home player's jersey, then an away player's jersey, to sample team colors. The tool uses these colors to auto-classify most detected players.
+3. **Auto-classification** -- After detection, boxes are automatically classified as home/away based on jersey color. Auto-classified boxes show an "auto" badge and can be overridden by pressing 1-6.
+4. **Review detections** -- Click any box to select it. **Drag corners** to resize, or **drag the center** to move it. Delete incorrect detections with `Delete`.
+5. **Assign categories** -- Click a pending box and press **1-6** to assign it a category. For home players, the roster popup appears automatically for jersey number entry.
+6. **Bulk assign** -- Use **Ctrl+1-6** to assign all pending boxes to a category at once. With football models, **Ctrl+2** (Opponent) skips goalkeeper-detected boxes.
+7. **Accept all** -- Use **Ctrl+A** to accept all remaining pending boxes as Opponent (with confirmation dialog).
+8. **Auto-assigned classes** -- Football models automatically assign referees (key 5) and balls (key 6). Only player/goalkeeper boxes need manual assignment.
+9. **Swap teams** -- Use **Ctrl+Shift+S** if home/away assignments are reversed. This swaps all home/away categories on the current frame and updates the stored team colors.
+10. **Export** -- Press **Enter** to export. Export is blocked while pending (unassigned) boxes remain.
+11. **Re-detect** -- Click **Re-detect** in the AI status bar to clear pending boxes and re-run detection on the current frame.
 
 ### Performance Notes
 
@@ -480,6 +483,8 @@ Exporter reads DB ──▶ COCO JSON / YOLO TXT + renamed frames + Re-ID crops
 | `Ctrl+R` | Open Review & Batch Edit |
 | `Ctrl+E` | Open Export Preview |
 | `Ctrl+Shift+C` | Open Collaboration Settings |
+| `Ctrl+Shift+S` | Swap home/away team assignments |
+| `Ctrl+S` | Force save current progress |
 
 ---
 

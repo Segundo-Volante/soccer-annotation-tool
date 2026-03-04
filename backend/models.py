@@ -33,6 +33,7 @@ class BoxStatus(Enum):
     PENDING = "pending"
     FINALIZED = "finalized"
     UNSURE = "unsure"
+    AUTO = "auto"
 
 
 class AnnotationMode(Enum):

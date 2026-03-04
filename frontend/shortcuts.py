@@ -59,6 +59,9 @@ class ShortcutHandler(QObject):
     zoom_out = pyqtSignal()              # Cmd/Ctrl -
     reset_zoom = pyqtSignal()            # 0
 
+    # Team color
+    swap_teams = pyqtSignal()            # Ctrl+Shift+S
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._popup_open = False
@@ -79,6 +82,9 @@ class ShortcutHandler(QObject):
         # Ctrl combos
         if ctrl and key == Qt.Key.Key_Z:
             self.undo.emit()
+            return True
+        if ctrl and shift and key == Qt.Key.Key_S:
+            self.swap_teams.emit()
             return True
         if ctrl and key == Qt.Key.Key_S:
             self.force_save.emit()

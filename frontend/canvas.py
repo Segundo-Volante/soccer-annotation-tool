@@ -667,6 +667,48 @@ class AnnotationCanvas(QWidget):
                     painter.setPen(QPen(subtle_color, 1))
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawRect(rect)
+            elif box.box_status == BoxStatus.AUTO:
+                color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
+                if render_full:
+                    # AUTO box: solid thin border in category color + "auto" badge
+                    if is_selected:
+                        pen = QPen(QColor(0, 255, 0), 3)
+                    else:
+                        pen = QPen(color, 1.5)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRect(rect)
+
+                    # Category label at top-left
+                    painter.setFont(label_font)
+                    cat_name = CATEGORY_NAMES.get(box.category, "")
+                    fm = painter.fontMetrics()
+                    lh = fm.height() + 4
+                    if cat_name:
+                        lx = rect.x() + 3
+                        ly = rect.y() + 2
+                        lw = fm.horizontalAdvance(cat_name) + 6
+                        painter.fillRect(lx - 2, ly, lw, lh, QColor(30, 30, 46, 200))
+                        painter.setPen(color)
+                        painter.drawText(lx, ly + fm.height(), cat_name)
+
+                    # "auto" badge at top-right
+                    auto_label = "auto"
+                    auto_w = fm.horizontalAdvance(auto_label) + 8
+                    ax = rect.right() - auto_w
+                    ay = rect.y() + 2
+                    badge_bg = QColor(color)
+                    badge_bg.setAlpha(180)
+                    painter.fillRect(ax, ay, auto_w, lh, badge_bg)
+                    painter.setPen(QColor("#1E1E2E"))
+                    painter.drawText(ax + 4, ay + fm.height(), auto_label)
+                else:
+                    # Subtle mode: 1px thin category-colored outline at 40% opacity
+                    subtle_color = QColor(color)
+                    subtle_color.setAlpha(102)
+                    painter.setPen(QPen(subtle_color, 1))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRect(rect)
             else:
                 color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
                 if render_full:
