@@ -1,0 +1,36 @@
+{
+  "home_team": {
+    "name": "Atlético de Madrid",
+    "formation": "4-4-2",
+    "players": [
+      {"number": 13, "name": "Oblak", "position": "GK"},
+      {"number": 4, "name": "Molina", "position": "RB"},
+      {"number": 15, "name": "Savić", "position": "CB"},
+      {"number": 3, "name": "Le Normand", "position": "CB"},
+      {"number": 23, "name": "Reinildo", "position": "LB"},
+      {"number": 11, "name": "Lemar", "position": "RM"},
+      {"number": 6, "name": "Koke", "position": "CM"},
+      {"number": 8, "name": "Barrios", "position": "CM"},
+      {"number": 10, "name": "Correa", "position": "LM"},
+      {"number": 7, "name": "Griezmann", "position": "ST"},
+      {"number": 19, "name": "Álvarez", "position": "ST"},
+      {"number": 9, "name": "Sorloth", "position": "ST"},
+      {"number": 21, "name": "Galán", "position": "LB"},
+      {"number": 22, "name": "Azpilicueta", "position": "CB"}
+    ]
+  },
+  "away_team": {
+    "name": "Getafe CF",
+    "players": [
+      {"number": 1, "name": "Soria", "position": "GK"},
+      {"number": 6, "name": "Alderete", "position": "CB"},
+      {"number": 2, "name": "Djené", "position": "CB"},
+      {"number": 12, "name": "Iglesias", "position": "LB"},
+      {"number": 17, "name": "Arambarri", "position": "CM"},
+      {"number": 14, "name": "Milla", "position": "CM"},
+      {"number": 22, "name": "Nyom", "position": "RB"},
+      {"number": 7, "name": "Enes Ünal", "position": "ST"},
+      {"number": 9, "name": "Borja Mayoral", "position": "ST"}
+    ]
+  }
+}

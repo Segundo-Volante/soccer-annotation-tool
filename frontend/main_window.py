@@ -28,6 +28,10 @@ from backend.models import (
 )
 from backend.project_config import ProjectConfig
 from backend.roster_manager import RosterManager
+from backend.squad_loader import (
+    load_squad_json, squad_from_roster, find_squad_json,
+    find_squad_list_folder, scan_squad_list_folder, SquadData,
+)
 from frontend.annotation_panel import AnnotationPanel
 from frontend.canvas import AnnotationCanvas
 from frontend.filmstrip import Filmstrip
@@ -41,7 +45,7 @@ from frontend.session_dialog import SessionDialog
 from frontend.session_summary_dialog import SessionSummaryDialog
 from frontend.setup_wizard import SetupWizard
 from frontend.shortcuts import ShortcutHandler
-from frontend.stats_bar import StatsBar
+from frontend.stats_bar import StatsBar, ShortcutsBar
 from frontend.toast import Toast
 
 logger = logging.getLogger(__name__)
@@ -218,6 +222,9 @@ class MainWindow(QMainWindow):
         self._workflow: str = "solo"
         self._annotator_name: str = ""
 
+        # Squad data (from squad.json or CSV roster conversion)
+        self._squad_data: Optional[SquadData] = None
+
         # Session metadata (carried from SessionDialog)
         self._session_meta: dict = {}
 
@@ -313,6 +320,9 @@ class MainWindow(QMainWindow):
         self._annotation_panel.box_clicked.connect(self._on_panel_box_clicked)
         self._annotation_panel.box_double_clicked.connect(self._on_panel_box_double_clicked)
         self._annotation_panel.delete_requested.connect(self._delete_selected_box)
+        # Squad panel click-to-assign signals
+        self._annotation_panel.squad_panel.player_clicked.connect(self._on_squad_player_clicked)
+        self._annotation_panel.squad_panel.quick_assign_clicked.connect(self._on_squad_quick_assign)
         mid.addWidget(self._annotation_panel)
 
         root.addLayout(mid, stretch=1)
@@ -529,6 +539,59 @@ class MainWindow(QMainWindow):
             opponent = result.get("opponent", "")
             opp_csv = self._project_config.get_opponent_roster_path(opponent) if opponent else None
             self._opponent_roster = RosterManager(str(opp_csv)) if opp_csv else None
+            # Load squad data — priority: squad.json → SquadList folder → CSV roster
+            squad_json_path = result.get("squad_json", "")
+            self._squad_data = None
+            if squad_json_path:
+                self._squad_data = load_squad_json(squad_json_path)
+            if not self._squad_data:
+                # Try auto-detect squad.json in session folder
+                found = find_squad_json(result["folder"])
+                if found:
+                    self._squad_data = load_squad_json(found)
+            if not self._squad_data:
+                # Try auto-detect SquadList image folder
+                sl_folder = find_squad_list_folder(result["folder"])
+                if sl_folder:
+                    team_name = self._project_config.team_name if self._project_config.exists else ""
+                    self._squad_data = scan_squad_list_folder(sl_folder, "home", team_name)
+                    logger.info("Auto-loaded squad from SquadList folder: %s", sl_folder)
+            # Merge SquadList headshots into squad.json data if both exist
+            if self._squad_data and not self._squad_data.headshot_images:
+                sl_folder = find_squad_list_folder(result["folder"])
+                # Also check next to squad.json file (e.g. generated from wizard)
+                if not sl_folder and squad_json_path:
+                    candidate = Path(squad_json_path).parent / "SquadList"
+                    if candidate.is_dir():
+                        sl_folder = candidate
+                if sl_folder:
+                    from backend.squad_loader import _IMAGE_EXTS
+                    for f in sorted(Path(sl_folder).iterdir()):
+                        if not f.is_file() or f.suffix.lower() not in _IMAGE_EXTS:
+                            continue
+                        parts = f.stem.split("_", 1)
+                        if len(parts) < 2:
+                            continue
+                        try:
+                            jersey = int(parts[0])
+                        except ValueError:
+                            continue
+                        # Assign to whichever team has this jersey number
+                        for side, team in [("home", self._squad_data.home_team),
+                                           ("away", self._squad_data.away_team)]:
+                            if any(p.jersey_number == jersey for p in team.players):
+                                self._squad_data.headshot_images[(side, jersey)] = f
+                                break
+                    if self._squad_data.headshot_images:
+                        logger.info("Merged %d SquadList headshots from: %s",
+                                    len(self._squad_data.headshot_images), sl_folder)
+            if not self._squad_data and self._roster:
+                # Fallback: build squad data from CSV roster
+                self._squad_data = squad_from_roster(self._roster, "home")
+                if self._opponent_roster:
+                    opp_squad = squad_from_roster(self._opponent_roster, "away")
+                    self._squad_data.away_team = opp_squad.away_team
+
             self._start_session(
                 result["folder"],
                 result["source"],
@@ -629,6 +692,10 @@ class MainWindow(QMainWindow):
             self._store, folder, output_path, team_name=team_name,
             has_opponent_roster=self._opponent_roster is not None,
         )
+
+        # Load squad data into the Squad Sheet panel
+        if self._squad_data and self._squad_data.is_loaded:
+            self._annotation_panel.squad_panel.load_squad(self._squad_data, folder)
 
         # Load filmstrip
         self._filmstrip.load_frames(self._frames, folder)
@@ -757,7 +824,7 @@ class MainWindow(QMainWindow):
         root.insertWidget(1, ai_bar)
 
     def _setup_stats_bar(self):
-        """Add the real-time statistics bar below the progress bar."""
+        """Add the real-time statistics bar and collapsible shortcuts bar."""
         if not self._session_stats:
             return
         central = self.centralWidget()
@@ -768,6 +835,11 @@ class MainWindow(QMainWindow):
         if self._annotation_mode == "ai_assisted":
             insert_idx = 2
         root.insertWidget(insert_idx, self._stats_bar)
+
+        # Collapsible shortcuts bar (below stats bar, hidden by default)
+        self._shortcuts_bar = ShortcutsBar()
+        root.insertWidget(insert_idx + 1, self._shortcuts_bar)
+        self._stats_bar.shortcuts_toggled.connect(self._shortcuts_bar.setVisible)
 
     def _check_backup(self):
         """Called by timer — triggers auto-backup if time interval reached."""
@@ -1045,6 +1117,8 @@ class MainWindow(QMainWindow):
         self._pending_box = None
         self._canvas.clear_pending_box()
 
+        jersey = None
+        name = None
         roster = self._get_roster_for_category(category)
         if roster:
             popup = PlayerPopup(roster, self)
@@ -1065,6 +1139,21 @@ class MainWindow(QMainWindow):
             )
 
         self._undo_stack.append((self._current_filename, box_id))
+
+        # Generate reference crop if player was assigned
+        if jersey is not None:
+            side = "home" if category in (Category.HOME_PLAYER, Category.HOME_GK) else "away"
+            img_path = os.path.join(self._folder_path, self._current_filename)
+            image = FileManager.load_image(img_path)
+            if image is not None:
+                result_path = FileManager.save_reference_crop(
+                    image, x, y, w, h, self._folder_path, side, jersey,
+                )
+                if result_path:
+                    self._annotation_panel.squad_panel.update_reference_crop(
+                        side, jersey, result_path,
+                    )
+
         self._reload_boxes()
         self._toast.show_message(t("toast.box_added_hint"), "success")
 
@@ -1129,6 +1218,7 @@ class MainWindow(QMainWindow):
     def _assign_unsure_box(self, idx: int, category: Category):
         """Re-assign an UNSURE box: clear unsure status and assign category."""
         box = self._current_frame.boxes[idx]
+        jersey = None
         roster = self._get_roster_for_category(category)
         if roster:
             popup = PlayerPopup(roster, self)
@@ -1150,6 +1240,12 @@ class MainWindow(QMainWindow):
                 category=category, box_status="finalized",
                 unsure_note=None,
             )
+
+        # Generate reference crop
+        if jersey is not None:
+            side = "home" if category in (Category.HOME_PLAYER, Category.HOME_GK) else "away"
+            self._try_save_reference_crop(box, side, jersey)
+
         self._reload_boxes()
         self._toast.show_message("Unsure status cleared", "success")
 
@@ -1157,9 +1253,12 @@ class MainWindow(QMainWindow):
 
     def _on_canvas_box_selected(self, index: int):
         self._annotation_panel.select_row(index)
+        # Show assignment mode hint in squad panel
+        self._annotation_panel.squad_panel.set_assignment_mode(True)
 
     def _on_canvas_box_deselected(self):
         self._annotation_panel.select_row(-1)
+        self._annotation_panel.squad_panel.set_assignment_mode(False)
 
     def _on_panel_box_clicked(self, index: int):
         self._canvas.select_box(index)
@@ -1329,6 +1428,7 @@ class MainWindow(QMainWindow):
         if box.box_status != BoxStatus.PENDING:
             return
 
+        jersey = None
         # For categories that need a roster popup (home player, home gk, etc.)
         roster = self._get_roster_for_category(category)
         if roster:
@@ -1351,6 +1451,11 @@ class MainWindow(QMainWindow):
                 category=category, box_status="finalized",
             )
 
+        # Generate reference crop
+        if jersey is not None:
+            side = "home" if category in (Category.HOME_PLAYER, Category.HOME_GK) else "away"
+            self._try_save_reference_crop(box, side, jersey)
+
         self._reload_boxes()
         self._toast.show_message(t("ai.box_assigned"), "success")
 
@@ -1366,6 +1471,171 @@ class MainWindow(QMainWindow):
                 self._canvas.select_box(i)
                 self._annotation_panel.select_row(i)
                 return
+
+    def _select_next_unassigned(self):
+        """Select the next unassigned (pending/unsure/no-player) box for auto-advance."""
+        if not self._current_frame:
+            return
+        for i, box in enumerate(self._current_frame.boxes):
+            if box.box_status == BoxStatus.PENDING:
+                self._canvas.select_box(i)
+                self._annotation_panel.select_row(i)
+                self._annotation_panel.squad_panel.set_assignment_mode(True)
+                return
+            if box.box_status == BoxStatus.UNSURE:
+                self._canvas.select_box(i)
+                self._annotation_panel.select_row(i)
+                self._annotation_panel.squad_panel.set_assignment_mode(True)
+                return
+            # Finalized box without player assignment (e.g., just category, no jersey)
+            if (box.box_status == BoxStatus.FINALIZED
+                    and box.category in (Category.HOME_PLAYER, Category.OPPONENT,
+                                         Category.HOME_GK, Category.OPPONENT_GK)
+                    and box.jersey_number is None):
+                self._canvas.select_box(i)
+                self._annotation_panel.select_row(i)
+                self._annotation_panel.squad_panel.set_assignment_mode(True)
+                return
+        # No unassigned boxes — clear selection
+        self._canvas.clear_selection()
+        self._annotation_panel.squad_panel.set_assignment_mode(False)
+
+    # ── Squad Sheet click-to-assign ──
+
+    def _on_squad_player_clicked(self, side: str, jersey: int, name: str, position: str):
+        """Handle click on a player row in the Squad Sheet."""
+        idx = self._canvas.get_selected_index()
+        if idx < 0 or not self._current_frame or not self._current_filename:
+            # No box selected — try pending box first
+            if self._pending_box:
+                self._assign_from_squad_pending(side, jersey, name, position)
+            else:
+                self._toast.show_message("Select a box first", "warning")
+            return
+
+        box = self._current_frame.boxes[idx]
+
+        # Determine category from side + position
+        if side == "home":
+            category = Category.HOME_GK if position == "GK" else Category.HOME_PLAYER
+        else:
+            category = Category.OPPONENT_GK if position == "GK" else Category.OPPONENT
+
+        # Update the box
+        self._store.update_box(
+            self._current_filename, box.id,
+            category=category, box_status="finalized",
+            jersey_number=jersey, player_name=name,
+            unsure_note=None,
+        )
+
+        # Generate reference crop
+        self._try_save_reference_crop(box, side, jersey)
+
+        self._reload_boxes()
+        self._toast.show_message(f"#{jersey} {name} assigned", "success", 1500)
+
+        # Auto-advance to next unassigned box
+        self._select_next_unassigned()
+
+    def _assign_from_squad_pending(self, side: str, jersey: int, name: str, position: str):
+        """Assign a pending (just-drawn) box via squad sheet click."""
+        if not self._pending_box or not self._current_frame or not self._current_filename:
+            return
+        x, y, w, h = self._pending_box
+        self._pending_box = None
+        self._canvas.clear_pending_box()
+
+        if side == "home":
+            category = Category.HOME_GK if position == "GK" else Category.HOME_PLAYER
+        else:
+            category = Category.OPPONENT_GK if position == "GK" else Category.OPPONENT
+
+        box_id = self._store.add_box(
+            self._current_filename, x, y, w, h, category,
+            jersey_number=jersey, player_name=name,
+        )
+        self._undo_stack.append((self._current_filename, box_id))
+
+        # Generate reference crop
+        img_path = os.path.join(self._folder_path, self._current_filename)
+        image = FileManager.load_image(img_path)
+        if image is not None:
+            result_path = FileManager.save_reference_crop(
+                image, x, y, w, h, self._folder_path, side, jersey,
+            )
+            if result_path:
+                self._annotation_panel.squad_panel.update_reference_crop(
+                    side, jersey, result_path,
+                )
+
+        self._reload_boxes()
+        self._toast.show_message(f"#{jersey} {name} assigned", "success", 1500)
+
+    def _on_squad_quick_assign(self, key: str):
+        """Handle quick-assign button clicks (unknown home, away, referee, ball)."""
+        idx = self._canvas.get_selected_index()
+        has_pending = self._pending_box is not None
+
+        if idx < 0 and not has_pending:
+            self._toast.show_message("Select a box first", "warning")
+            return
+
+        category_map = {
+            "unknown_home": Category.HOME_PLAYER,
+            "unknown_away": Category.OPPONENT,
+            "referee": Category.REFEREE,
+            "ball": Category.BALL,
+        }
+        category = category_map.get(key)
+        if not category:
+            return
+
+        if has_pending:
+            # Assign pending box
+            x, y, w, h = self._pending_box
+            self._pending_box = None
+            self._canvas.clear_pending_box()
+            box_id = self._store.add_box(
+                self._current_filename, x, y, w, h, category,
+            )
+            self._undo_stack.append((self._current_filename, box_id))
+        else:
+            # Update existing selected box
+            box = self._current_frame.boxes[idx]
+            self._store.update_box(
+                self._current_filename, box.id,
+                category=category, box_status="finalized",
+                unsure_note=None,
+            )
+
+        label_map = {
+            "unknown_home": "Unknown Home Player",
+            "unknown_away": "Unknown Away Player",
+            "referee": "Referee",
+            "ball": "Ball",
+        }
+        self._reload_boxes()
+        self._toast.show_message(f"{label_map[key]} assigned", "success", 1500)
+
+        # Auto-advance
+        self._select_next_unassigned()
+
+    def _try_save_reference_crop(self, box: BoundingBox, side: str, jersey: int):
+        """Save a reference crop for a player if possible."""
+        if not self._folder_path or not self._current_filename:
+            return
+        img_path = os.path.join(self._folder_path, self._current_filename)
+        image = FileManager.load_image(img_path)
+        if image is not None:
+            result_path = FileManager.save_reference_crop(
+                image, box.x, box.y, box.width, box.height,
+                self._folder_path, side, jersey,
+            )
+            if result_path:
+                self._annotation_panel.squad_panel.update_reference_crop(
+                    side, jersey, result_path,
+                )
 
     def _on_bulk_assign(self, n: int):
         """Ctrl+N: bulk-assign all pending boxes to category N."""

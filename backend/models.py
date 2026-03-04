@@ -161,3 +161,4 @@ class FrameAnnotation:
 class Player:
     jersey_number: int
     name: str
+    position: str = ""  # GK, RB, CB, LB, CDM, CM, CAM, RM, LM, RW, LW, ST, CF etc.

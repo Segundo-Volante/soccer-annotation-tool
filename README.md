@@ -4,7 +4,7 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.5+-green)
-![Tests](https://img.shields.io/badge/Tests-139_passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-177_passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ![Main Annotation View](screenshots/main_annotation_view.png)
@@ -47,6 +47,10 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 - Three box visibility modes (Full / Subtle / Hidden) to reduce visual clutter
 - Keyboard-first workflow -- every action mapped to a key (5-10s per frame)
 - Player roster auto-fill from CSV (type jersey number, name fills automatically)
+- Squad Sheet panel with click-to-assign: select a box, click a player row to assign instantly
+- SquadList folder support: place player headshot images for quick visual identification
+- Hover-to-enlarge player photos in the Squad Sheet for easy recognition
+- Collapsible keyboard shortcuts bar in the stats area (toggle with "? Shortcuts" button)
 - 6 configurable metadata dimensions per frame (shot, camera, ball, situation, zone, quality)
 - Auto-skip for non-actionable frames (replays, broadcasts, crowd shots)
 
@@ -544,7 +548,8 @@ football-annotation-tool/
 │   ├── exporter.py         # COCO JSON + crop export with dynamic naming
 │   ├── yolo_exporter.py    # YOLO TXT format export with data.yaml
 │   ├── annotation_store.py # Annotation store for health/review tools
-│   ├── file_manager.py     # Image I/O and folder scanning
+│   ├── file_manager.py     # Image I/O, folder scanning, reference crops
+│   ├── squad_loader.py     # Squad JSON/SquadList loader + generator
 │   ├── model_manager.py    # AI model manager (YOLO/RT-DETR, optional)
 │   ├── roster_manager.py   # CSV roster loader + player lookup
 │   ├── project_config.py   # Project configuration loader (project.json)
@@ -555,7 +560,8 @@ football-annotation-tool/
 │   ├── main_window.py      # Main application window
 │   ├── canvas.py           # Image display + box drawing
 │   ├── metadata_bar.py     # Tab+Number metadata system
-│   ├── annotation_panel.py # Box list + shortcuts reference
+│   ├── annotation_panel.py # Box list panel
+│   ├── squad_panel.py      # Squad Sheet with click-to-assign + hover enlarge
 │   ├── filmstrip.py        # Thumbnail sidebar
 │   ├── session_dialog.py   # Session configuration dialog
 │   ├── setup_wizard.py     # First-run setup wizard
@@ -588,7 +594,7 @@ football-annotation-tool/
 │       ├── fr.json             # French
 │       └── es.json             # Spanish
 ├── screenshots/            # App screenshots for documentation
-├── tests/                  # 139 tests (pytest)
+├── tests/                  # 177 tests (pytest)
 ├── TUTORIAL.md             # Full usage guide
 ├── TUTORIAL.pdf            # PDF version of the tutorial
 ├── requirements.txt        # Base dependencies (PyQt6, OpenCV)

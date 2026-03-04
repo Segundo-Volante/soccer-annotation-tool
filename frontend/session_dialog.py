@@ -149,6 +149,40 @@ class SessionDialog(QDialog):
         self._roster_info.setStyleSheet("color: #F5A623; font-size: 11px;")
         layout.addWidget(self._roster_info)
 
+        # Squad JSON row
+        self._squad_label = QLabel("Squad File (squad.json)")
+        self._squad_label.setStyleSheet("color: #8888A0; font-size: 11px; font-weight: bold;")
+        layout.addWidget(self._squad_label)
+        squad_row = QHBoxLayout()
+        self._squad_input = QLineEdit()
+        self._squad_input.setPlaceholderText("Auto-detected or browse...")
+        self._squad_input.setReadOnly(True)
+        squad_row.addWidget(self._squad_input, stretch=1)
+        self._browse_squad_btn = QPushButton(t("button.browse"))
+        self._browse_squad_btn.clicked.connect(self._browse_squad)
+        squad_row.addWidget(self._browse_squad_btn)
+        self._generate_squad_btn = QPushButton("Generate from SquadList")
+        self._generate_squad_btn.setToolTip(
+            "Scan a SquadList folder of player headshot images\n"
+            "and auto-generate squad.json from the filenames.\n"
+            "Image names should be: {number}_{Name}.png"
+        )
+        self._generate_squad_btn.setStyleSheet("""
+            QPushButton {
+                background: #2D5A27; color: #A8E6A1; padding: 8px 12px;
+                border-radius: 4px; font-size: 11px; border: none;
+            }
+            QPushButton:hover { background: #3A7A32; }
+        """)
+        self._generate_squad_btn.clicked.connect(self._generate_squad_from_folder)
+        squad_row.addWidget(self._generate_squad_btn)
+        layout.addLayout(squad_row)
+
+        self._squad_info = QLabel("")
+        self._squad_info.setStyleSheet("color: #F5A623; font-size: 11px;")
+        layout.addWidget(self._squad_info)
+        self._squad_path = ""
+
         # Separator
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.HLine)
@@ -396,6 +430,7 @@ class SessionDialog(QDialog):
         self._roster_label.setText(t("session.roster_label"))
         self._roster_input.setPlaceholderText(t("session.roster_placeholder"))
         self._browse_roster_btn.setText(t("button.browse"))
+        self._browse_squad_btn.setText(t("button.browse"))
         self._source_label.setText(t("session.source_label"))
         self._source_combo.lineEdit().setPlaceholderText(t("session.source_placeholder"))
         self._round_label.setText(t("session.round_label"))
@@ -471,6 +506,8 @@ class SessionDialog(QDialog):
         if folder:
             self._folder_path = folder
             self._folder_input.setText(folder)
+            # Auto-detect squad.json in selected folder
+            self._auto_detect_squad(folder)
 
     def _browse_roster(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -482,6 +519,123 @@ class SessionDialog(QDialog):
             self._roster_path = path
             self._roster_input.setText(path)
             self._preview_roster(Path(path))
+
+    def _browse_squad(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Squad File",
+            str(Path(self._folder_path) if self._folder_path else Path.home()),
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if path:
+            self._squad_path = path
+            self._squad_input.setText(path)
+            self._preview_squad(Path(path))
+
+    def _generate_squad_from_folder(self):
+        """Generate squad.json from a SquadList folder of player images."""
+        from backend.squad_loader import (
+            find_squad_list_folder, generate_squad_json, _IMAGE_EXTS,
+        )
+
+        # Try to find SquadList folder automatically first
+        sl_folder = None
+        if self._folder_path:
+            sl_folder = find_squad_list_folder(self._folder_path)
+
+        if not sl_folder:
+            # Let user browse for it
+            chosen = QFileDialog.getExistingDirectory(
+                self, "Select SquadList Folder",
+                str(Path(self._folder_path) if self._folder_path else Path.home()),
+            )
+            if not chosen:
+                return
+            sl_folder = Path(chosen)
+
+        # Count valid images
+        image_count = sum(
+            1 for f in sl_folder.iterdir()
+            if f.is_file() and f.suffix.lower() in _IMAGE_EXTS
+            and "_" in f.stem
+        )
+        if image_count == 0:
+            self._squad_info.setText(
+                "No valid player images found. Files should be named: {number}_{Name}.png"
+            )
+            self._squad_info.setStyleSheet("color: #E74C3C; font-size: 11px;")
+            return
+
+        # Determine output path: put squad.json next to the SquadList folder
+        output_dir = sl_folder.parent
+        output_path = output_dir / "squad.json"
+
+        # Get team name from project config or roster
+        team_name = ""
+        if self._project_config and self._project_config.exists:
+            team_name = self._project_config.team_name
+
+        result = generate_squad_json(sl_folder, output_path, team_name=team_name)
+        if result:
+            self._squad_path = str(result)
+            self._squad_input.setText(str(result))
+            self._preview_squad(result)
+            self._squad_info.setStyleSheet("color: #27AE60; font-size: 11px;")
+            info_text = self._squad_info.text()
+            self._squad_info.setText(
+                f"Generated from {image_count} images in SquadList/  |  {info_text}"
+            )
+        else:
+            self._squad_info.setText("Failed to generate squad.json — no valid images found")
+            self._squad_info.setStyleSheet("color: #E74C3C; font-size: 11px;")
+
+    def _auto_detect_squad(self, folder: str):
+        """Auto-detect squad.json or SquadList folder in the session folder."""
+        from backend.squad_loader import find_squad_json, find_squad_list_folder, _IMAGE_EXTS
+
+        # 1. Try to find existing squad.json
+        found = find_squad_json(folder)
+        if found:
+            self._squad_path = str(found)
+            self._squad_input.setText(str(found))
+            self._preview_squad(found)
+            return
+
+        # 2. Check for SquadList folder and show hint
+        sl_folder = find_squad_list_folder(folder)
+        if sl_folder:
+            image_count = sum(
+                1 for f in sl_folder.iterdir()
+                if f.is_file() and f.suffix.lower() in _IMAGE_EXTS
+                and "_" in f.stem
+            )
+            if image_count > 0:
+                self._squad_path = ""
+                self._squad_input.setText("")
+                self._squad_info.setText(
+                    f"SquadList/ found ({image_count} images) — "
+                    f"click \"Generate from SquadList\" to create squad.json"
+                )
+                self._squad_info.setStyleSheet("color: #3498DB; font-size: 11px;")
+                return
+
+        # Nothing found
+        self._squad_path = ""
+        self._squad_input.setText("")
+        self._squad_info.setText("")
+
+    def _preview_squad(self, path: Path):
+        """Show a brief preview of the squad.json contents."""
+        from backend.squad_loader import load_squad_json
+        squad = load_squad_json(path)
+        if squad and squad.is_loaded:
+            parts = []
+            if squad.home_team.players:
+                parts.append(f"Home: {squad.home_team.name or 'Team'} ({len(squad.home_team.players)} players)")
+            if squad.away_team.players:
+                parts.append(f"Away: {squad.away_team.name or 'Team'} ({len(squad.away_team.players)} players)")
+            self._squad_info.setText(" | ".join(parts))
+        else:
+            self._squad_info.setText("Invalid squad.json file")
 
     def _preview_roster(self, path: Path):
         """Read first row of CSV to show team + season info."""
@@ -510,6 +664,7 @@ class SessionDialog(QDialog):
         self._result = {
             "folder": self._folder_path,
             "roster": self._roster_path,
+            "squad_json": self._squad_path,
             "source": self._source_combo.currentText(),
             "round": self._round_input.text().strip(),
             "opponent": self._opponent_combo.currentText().strip(),
