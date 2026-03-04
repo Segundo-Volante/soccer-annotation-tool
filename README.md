@@ -7,7 +7,6 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 ![Tests](https://img.shields.io/badge/Tests-280_passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-![Main Annotation View](screenshots/main_annotation_view.png)
 
 > I just wanted to create something that lets more people who are truly passionate about football AI focus on what matters, without getting stuck in tedious technical details. You can annotate your data quickly and jump straight into building models.
 >
@@ -140,7 +139,6 @@ For home team players (keys 1 and 3), a popup asks for the jersey number -- the 
 
 The **right panel** lists every box on the current frame with the player's jersey number, name, and occlusion status. Click any entry to select it on the canvas. Double-click to edit player info. Use `Delete` to remove a box or `Ctrl+Z` to undo.
 
-![Annotation Panel](screenshots/annotation_panel.png)
 
 ### Step 2 -- Set Frame Metadata (Tab + Number System)
 
@@ -153,27 +151,23 @@ Dimensions with `"in_filename": true` are included in exported filenames. Dimens
 
 **SHOT** -- Describes the camera framing. Options in red (replay, broadcast, crowd) trigger auto-skip.
 
-![Metadata - Shot Type](screenshots/metadata_shot.png)
 
 **CAMERA** -- Describes camera movement. Transition triggers auto-skip.
 
-![Metadata - Camera Motion](screenshots/metadata_camera.png)
+
 
 **BALL** -- Ball visibility in the frame.
 
-![Metadata - Ball Status](screenshots/metadata_ball.png)
+
 
 **SITUATION** -- Current game state (open play, set piece, celebration, etc.).
 
-![Metadata - Game Situation](screenshots/metadata_situation.png)
 
 **ZONE** -- Which third of the pitch is shown.
 
-![Metadata - Pitch Zone](screenshots/metadata_zone.png)
 
 **QUALITY** -- Frame quality. Overlay_heavy and transition trigger auto-skip.
 
-![Metadata - Frame Quality](screenshots/metadata_quality.png)
 
 </details>
 
@@ -202,7 +196,6 @@ pip install -r requirements-ai.txt
 4. Set a confidence threshold (default 0.30 -- lower = more detections, higher = fewer but more accurate)
 5. Click **Start Annotating** to begin the session
 
-![AI Session Dialog](screenshots/ai_session_dialog.png)
 
 ### Available Models (3 tiers)
 
@@ -223,9 +216,6 @@ python main.py
 
 ### Workflow
 
-![AI Detection Example -- LaLiga](screenshots/ai_detection_example1.png)
-
-![AI Detection Example -- Away Match](screenshots/ai_detection_example2.png)
 
 1. **Navigate to a frame** -- AI detections appear automatically as **amber dashed boxes** labeled with class and confidence (e.g. "? person (0.92)"). A progress overlay shows the model name and elapsed time during detection.
 2. **Team color setup** -- On the first AI session, a color setup dialog appears. Click on a home player's jersey, then an away player's jersey, to sample team colors. The tool uses these colors to auto-classify most detected players.
@@ -252,7 +242,6 @@ python main.py
 
 The tool supports multi-person annotation projects with five collaboration workflows. Open **Settings > Collaboration** (or `Ctrl+Shift+C`) to configure.
 
-![Collaboration Workflows](screenshots/collaboration_workflow_selection.png)
 
 | Workflow | Description |
 |----------|-------------|
@@ -266,29 +255,19 @@ The tool supports multi-person annotation projects with five collaboration workf
 
 Divide frames across annotators by count or percentage. Each person works on their assigned range, then merge all annotations back together.
 
-![Split Frames](screenshots/split_merge_divide_frames.png)
 
 When merging, the tool detects conflicts (frames annotated by multiple people) and lets you choose how to resolve them -- keep first, keep latest, or keep the one with more boxes.
 
-![Merge Annotations](screenshots/split_merge_annotations.png)
 
 ### Shared Folder
 
 Connect a cloud-synced folder as your shared workspace. The setup guide walks through configuration for Google Drive, OneDrive, or Dropbox.
 
-![Shared Folder Setup](screenshots/shared_folder_setup.png)
-
-![Shared Folder Guide](screenshots/shared_folder_guide.png)
 
 ### Git Collaboration
 
 Set up your identity, then clone a remote repository or connect an existing local repo. The built-in Git interface handles commits, pushes, and pulls.
 
-![Git Setup](screenshots/git_collaboration_setup.png)
-
-![Clone Repository](screenshots/git_clone_repo.png)
-
-![Connect Repository](screenshots/git_connect_repo.png)
 
 ---
 
@@ -296,29 +275,21 @@ Set up your identity, then clone a remote repository or connect an existing loca
 
 Access built-in tools from the **Tools** menu to monitor annotation quality, review your work, and export datasets.
 
-![Tools Menu](screenshots/tools_menu.png)
 
 ### Health Dashboard (`Ctrl+H`)
 
 Real-time annotation quality analysis. The Overview tab shows frame and bounding box statistics. The Issues tab flags problems like missing boxes, duplicate frames, and jersey conflicts. The Distribution tab shows category and jersey number breakdowns.
 
-![Health Dashboard -- Overview](screenshots/health_dashboard_overview.png)
-
-![Health Dashboard -- Issues](screenshots/health_dashboard_issues.png)
-
-![Health Dashboard -- Distribution](screenshots/health_dashboard_distribution.png)
 
 ### Review & Batch Edit (`Ctrl+R`)
 
 Search and filter annotations across all frames. Jump to any frame directly from the results. Use batch edit to reassign jersey numbers across multiple frames at once.
 
-![Review Panel](screenshots/review_panel.png)
 
 ### Export Preview (`Ctrl+E`)
 
 Preview what will be exported before running the export. Choose between **COCO JSON** and **YOLO TXT** formats, set the output folder, and see the exact file structure that will be generated.
 
-![Export Preview](screenshots/export_preview.png)
 
 ---
 
@@ -600,7 +571,6 @@ football-annotation-tool/
 │       ├── pt.json             # Portuguese
 │       ├── fr.json             # French
 │       └── es.json             # Spanish
-├── screenshots/            # App screenshots for documentation
 ├── tests/                  # 177 tests (pytest)
 ├── TUTORIAL.md             # Full usage guide
 ├── TUTORIAL.pdf            # PDF version of the tutorial
