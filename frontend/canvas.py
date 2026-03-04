@@ -627,6 +627,46 @@ class AnnotationCanvas(QWidget):
                     painter.setPen(QPen(subtle_color, 1))
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawRect(rect)
+            elif box.box_status == BoxStatus.UNSURE:
+                unsure_color = QColor("#FF6B35")
+                if render_full:
+                    # UNSURE box: orange dashed border (category color if assigned)
+                    if is_selected:
+                        pen = QPen(QColor(0, 255, 0), 3, Qt.PenStyle.DashLine)
+                    else:
+                        cat_color = CATEGORY_COLORS.get(box.category, unsure_color)
+                        pen = QPen(cat_color, 2, Qt.PenStyle.DashLine)
+                    painter.setPen(pen)
+                    painter.setBrush(QBrush(QColor(255, 107, 53, 25)))
+                    painter.drawRect(rect)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+                    # Label: "? unsure" or "? Home Player" or "? #7 Griezmann"
+                    painter.setFont(label_font)
+                    if box.jersey_number is not None and box.player_name:
+                        parts = box.player_name.split()
+                        short = parts[-1] if parts else ""
+                        label_text = f"? #{box.jersey_number} {short}"
+                    elif box.category is not None:
+                        cat_name = CATEGORY_NAMES.get(box.category, "unknown")
+                        label_text = f"? {cat_name}"
+                    else:
+                        label_text = "? unsure"
+                    fm = painter.fontMetrics()
+                    lx = rect.x() + 3
+                    ly = rect.y() + 2
+                    lw = fm.horizontalAdvance(label_text) + 6
+                    lh = fm.height() + 4
+                    painter.fillRect(lx - 2, ly, lw, lh, QColor(30, 30, 46, 200))
+                    painter.setPen(unsure_color)
+                    painter.drawText(lx, ly + fm.height(), label_text)
+                else:
+                    # Subtle mode: 1px thin orange outline at 40% opacity
+                    subtle_color = QColor("#FF6B35")
+                    subtle_color.setAlpha(102)
+                    painter.setPen(QPen(subtle_color, 1))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRect(rect)
             else:
                 color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
                 if render_full:

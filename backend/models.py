@@ -32,6 +32,7 @@ class BoxSource(Enum):
 class BoxStatus(Enum):
     PENDING = "pending"
     FINALIZED = "finalized"
+    UNSURE = "unsure"
 
 
 class AnnotationMode(Enum):
@@ -84,6 +85,7 @@ class BoundingBox:
     box_status: BoxStatus = BoxStatus.FINALIZED
     confidence: Optional[float] = None
     detected_class: Optional[str] = None  # raw model class: "player", "goalkeeper", "person", etc.
+    unsure_note: Optional[str] = None  # free-text note when status is UNSURE
 
 
 @dataclass

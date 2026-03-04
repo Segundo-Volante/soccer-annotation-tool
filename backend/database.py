@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS boxes (
     box_status TEXT DEFAULT 'finalized',
     confidence REAL,
     detected_class TEXT,
+    unsure_note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -141,6 +142,7 @@ class DatabaseManager:
             ("box_status", "'finalized'"),
             ("confidence", "NULL"),
             ("detected_class", "NULL"),
+            ("unsure_note", "NULL"),
         ]:
             if col not in existing_box:
                 self.conn.execute(f"ALTER TABLE boxes ADD COLUMN {col} TEXT DEFAULT {sql_default}")
@@ -318,7 +320,8 @@ class DatabaseManager:
     def update_box(self, box_id: int, **kwargs):
         allowed = {"x", "y", "width", "height", "category", "jersey_number",
                     "player_name", "occlusion", "truncated",
-                    "source", "box_status", "confidence", "detected_class"}
+                    "source", "box_status", "confidence", "detected_class",
+                    "unsure_note"}
         updates = {}
         for k, v in kwargs.items():
             if k not in allowed:
@@ -483,4 +486,5 @@ class DatabaseManager:
             box_status=BoxStatus(row["box_status"]) if "box_status" in keys and row["box_status"] else BoxStatus.FINALIZED,
             confidence=row["confidence"] if "confidence" in keys else None,
             detected_class=row["detected_class"] if "detected_class" in keys else None,
+            unsure_note=row["unsure_note"] if "unsure_note" in keys else None,
         )

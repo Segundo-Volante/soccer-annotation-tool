@@ -41,6 +41,7 @@ def _box_to_dict(box: BoundingBox) -> dict:
         "box_status": box.box_status.value,
         "confidence": box.confidence,
         "detected_class": box.detected_class,
+        "unsure_note": box.unsure_note,
     }
     return d
 
@@ -62,6 +63,7 @@ def _dict_to_box(d: dict, frame_id: Optional[int] = None) -> BoundingBox:
         box_status=BoxStatus(d["box_status"]) if d.get("box_status") else BoxStatus.FINALIZED,
         confidence=d.get("confidence"),
         detected_class=d.get("detected_class"),
+        unsure_note=d.get("unsure_note"),
     )
 
 
@@ -266,6 +268,8 @@ class AnnotationStore:
                     if k == "category" and isinstance(v, Category):
                         v = v.value
                     elif k == "occlusion" and isinstance(v, Occlusion):
+                        v = v.value
+                    elif k == "box_status" and isinstance(v, BoxStatus):
                         v = v.value
                     elif k == "truncated" and isinstance(v, bool):
                         v = v  # keep bool

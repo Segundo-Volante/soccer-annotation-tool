@@ -48,6 +48,9 @@ class ShortcutHandler(QObject):
     open_review = pyqtSignal()           # Ctrl+R
     open_export_preview = pyqtSignal()   # Ctrl+E
 
+    # Unsure
+    mark_unsure = pyqtSignal()           # U
+
     # Box visibility
     cycle_box_visibility = pyqtSignal()  # B
 
@@ -152,6 +155,7 @@ class ShortcutHandler(QObject):
 
         # Simple key mapping
         mapping = {
+            Qt.Key.Key_U: self.mark_unsure,
             Qt.Key.Key_B: self.cycle_box_visibility,
             Qt.Key.Key_F: self.occlusion_visible,
             Qt.Key.Key_G: self.occlusion_partial,

@@ -1,5 +1,5 @@
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QPixmap, QColor, QIcon
+from PyQt6.QtGui import QPixmap, QColor, QIcon, QPainter
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QLabel,
 )
@@ -45,11 +45,13 @@ class Filmstrip(QWidget):
         layout.addWidget(self._list)
 
         self._filenames: list[str] = []
+        self._original_pixmaps: list[QPixmap] = []  # store originals for dot overlay
 
     def load_frames(self, frames: list[dict], folder_path: str):
         self._list.blockSignals(True)
         self._list.clear()
         self._filenames.clear()
+        self._original_pixmaps.clear()
 
         for f in frames:
             item = QListWidgetItem()
@@ -68,7 +70,10 @@ class Filmstrip(QWidget):
                 pix = pix.scaled(THUMB_WIDTH, THUMB_HEIGHT,
                                  Qt.AspectRatioMode.KeepAspectRatio,
                                  Qt.TransformationMode.SmoothTransformation)
+                self._original_pixmaps.append(QPixmap(pix))  # store a copy
                 item.setIcon(QIcon(pix))
+            else:
+                self._original_pixmaps.append(QPixmap())
 
             item.setSizeHint(QSize(THUMB_WIDTH + 20, THUMB_HEIGHT + 24))
             self._list.addItem(item)
@@ -90,6 +95,27 @@ class Filmstrip(QWidget):
         if item:
             bg = STATUS_COLORS.get(status, STATUS_COLORS["unviewed"])
             item.setBackground(bg)
+
+    def update_dot(self, row: int, dot_color: QColor = None):
+        """Paint a colored status dot on the thumbnail at the given row."""
+        if row < 0 or row >= len(self._original_pixmaps):
+            return
+        item = self._list.item(row)
+        if not item:
+            return
+        orig = self._original_pixmaps[row]
+        if orig.isNull():
+            return
+        pix = QPixmap(orig)  # copy original
+        if dot_color:
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setBrush(dot_color)
+            p.setPen(Qt.PenStyle.NoPen)
+            dot_size = 10
+            p.drawEllipse(pix.width() - dot_size - 3, 3, dot_size, dot_size)
+            p.end()
+        item.setIcon(QIcon(pix))
 
     def set_current_highlight(self, row: int):
         # Highlight current row as in-progress (yellow)

@@ -1,14 +1,15 @@
 import json
 import shutil
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from backend.annotation_store import AnnotationStore
 from backend.file_manager import FileManager
 from backend.models import (
-    BoundingBox, Category, CATEGORY_NAMES, FrameAnnotation, FrameStatus,
-    METADATA_KEYS,
+    BoundingBox, BoxStatus, Category, CATEGORY_NAMES, FrameAnnotation,
+    FrameStatus, METADATA_KEYS,
 )
 
 
@@ -49,7 +50,11 @@ class Exporter:
         self._team_name = team_name
         self._has_opponent_roster = has_opponent_roster
         self._meta_config = _load_metadata_config()
-        FileManager.create_output_dirs(self.output_folder)
+        # Create two-folder output structure
+        self._complete_dir = self.output_folder / "complete"
+        self._review_dir = self.output_folder / "needs_review"
+        FileManager.create_output_dirs(self._complete_dir)
+        FileManager.create_output_dirs(self._review_dir)
 
     def validate_metadata(self, frame: FrameAnnotation) -> Optional[str]:
         """Return error message if metadata incomplete, else None."""
@@ -58,35 +63,42 @@ class Exporter:
                 return f"Set {key.replace('_', ' ')} before exporting"
         return None
 
+    def _get_target_dir(self, frame: FrameAnnotation) -> Path:
+        """Return complete/ or needs_review/ based on unsure boxes."""
+        has_unsure = any(b.box_status == BoxStatus.UNSURE for b in frame.boxes)
+        return self._review_dir if has_unsure else self._complete_dir
+
     def export_frame(self, frame: FrameAnnotation, filename: str) -> str:
         """Export a single frame.  Returns the exported filename."""
         seq = self.store.get_next_seq()
         exported_name = self._build_frame_name(frame, seq)
+        target_dir = self._get_target_dir(frame)
 
         # 1. Copy original frame
         src = self.input_folder / frame.original_filename
-        dst = self.output_folder / "frames" / exported_name
+        dst = target_dir / "frames" / exported_name
         shutil.copy2(str(src), str(dst))
 
         # 2. Generate per-frame COCO JSON
         json_name = Path(exported_name).stem + ".json"
-        json_path = self.output_folder / "annotations" / json_name
+        json_path = target_dir / "annotations" / json_name
         coco_data = self._build_coco_json(frame, exported_name)
         json_path.write_text(json.dumps(coco_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
         # 3. Crop bounding boxes
         image = FileManager.load_image(src)
         if image is not None:
-            self._export_crops(image, frame, seq)
+            self._export_crops(image, frame, seq, target_dir)
 
-        # 4. Update combined dataset
-        self._update_combined_dataset(coco_data)
+        # 4. Update combined dataset for the target folder
+        self._update_combined_dataset(coco_data, target_dir)
 
-        # 5. Update summary
+        # 5. Update review manifest if frame has unsure boxes
+        if any(b.box_status == BoxStatus.UNSURE for b in frame.boxes):
+            self._update_review_manifest(frame, exported_name)
+
+        # 6. Update summary
         self._update_summary()
-
-        # Note: frame status + exported_filename updates are done by the caller
-        # (MainWindow) via AnnotationStore, not here.
 
         return exported_name
 
@@ -116,6 +128,7 @@ class Exporter:
                 "category_name": CATEGORY_NAMES[box.category],
                 "occlusion": box.occlusion.value,
                 "truncated": box.truncated,
+                "box_status": box.box_status.value,
             }
             if box.jersey_number is not None:
                 ann["jersey_number"] = box.jersey_number
@@ -124,6 +137,8 @@ class Exporter:
             ann["source"] = box.source.value
             if box.confidence is not None:
                 ann["confidence"] = box.confidence
+            if box.unsure_note:
+                ann["unsure_note"] = box.unsure_note
             annotations.append(ann)
 
         # Build frame_metadata: session-level fields + all dynamic metadata
@@ -146,7 +161,8 @@ class Exporter:
             "annotations": annotations,
         }
 
-    def _export_crops(self, image, frame: FrameAnnotation, seq: int):
+    def _export_crops(self, image, frame: FrameAnnotation, seq: int,
+                      target_dir: Path):
         source = frame.source or "Unknown"
         rnd = frame.match_round or "R00"
         opp_idx = 0
@@ -165,7 +181,7 @@ class Exporter:
                 lastname = _extract_lastname(box.player_name) if box.player_name else "Unknown"
                 folder_name = f"home_{num:02d}_{lastname}"
                 crop_name = f"{source}_{rnd}_{seq:04d}_{num:02d}_{lastname}_{occ}.png"
-                crop_path = self.output_folder / "crops" / folder_name / crop_name
+                crop_path = target_dir / "crops" / folder_name / crop_name
 
             elif cat in (Category.OPPONENT, Category.OPPONENT_GK):
                 opp_idx += 1
@@ -177,24 +193,24 @@ class Exporter:
                 else:
                     folder_name = "away"
                     crop_name = f"{source}_{rnd}_{seq:04d}_opp_{opp_idx:03d}_{occ}.png"
-                crop_path = self.output_folder / "crops" / folder_name / crop_name
+                crop_path = target_dir / "crops" / folder_name / crop_name
 
             elif cat == Category.REFEREE:
                 ref_idx += 1
                 crop_name = f"{source}_{rnd}_{seq:04d}_ref_{ref_idx:03d}_{occ}.png"
-                crop_path = self.output_folder / "crops" / "referee" / crop_name
+                crop_path = target_dir / "crops" / "referee" / crop_name
 
             elif cat == Category.BALL:
                 crop_name = f"{source}_{rnd}_{seq:04d}_ball_{occ}.png"
-                crop_path = self.output_folder / "crops" / "ball" / crop_name
+                crop_path = target_dir / "crops" / "ball" / crop_name
 
             else:
                 continue
 
             FileManager.save_image(crop, crop_path)
 
-    def _update_combined_dataset(self, frame_coco: dict):
-        dataset_path = self.output_folder / "coco_dataset.json"
+    def _update_combined_dataset(self, frame_coco: dict, target_dir: Path):
+        dataset_path = target_dir / "coco_dataset.json"
         if dataset_path.exists():
             dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
         else:
@@ -224,18 +240,65 @@ class Exporter:
             json.dumps(dataset, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
+    def _update_review_manifest(self, frame: FrameAnnotation, exported_name: str):
+        """Append unsure box info to review_manifest.json."""
+        manifest_path = self._review_dir / "review_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        else:
+            manifest = {
+                "frames_needing_review": [],
+                "export_date": datetime.now(timezone.utc).isoformat(),
+                "total_complete_frames": 0,
+                "total_review_frames": 0,
+            }
+
+        unsure_boxes = []
+        assigned_count = 0
+        for box in frame.boxes:
+            if box.box_status == BoxStatus.UNSURE:
+                unsure_boxes.append({
+                    "box_id": box.id,
+                    "current_category": CATEGORY_NAMES.get(box.category, None),
+                    "jersey_number": box.jersey_number,
+                    "note": box.unsure_note or "",
+                    "bbox": [box.x, box.y, box.width, box.height],
+                })
+            else:
+                assigned_count += 1
+
+        manifest["frames_needing_review"].append({
+            "file_name": exported_name,
+            "unsure_boxes": unsure_boxes,
+            "assigned_boxes_count": assigned_count,
+            "unsure_boxes_count": len(unsure_boxes),
+        })
+        manifest["total_review_frames"] = len(manifest["frames_needing_review"])
+        manifest["export_date"] = datetime.now(timezone.utc).isoformat()
+
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
     def _update_summary(self):
         """Update the summary.json using data from the annotation store."""
         stats = self.store.get_session_stats()
 
-        # Aggregate box counts from all annotated frames
+        # Aggregate box counts and compute complete vs review breakdown
         by_category = {}
         by_player = {}
         total_boxes = 0
+        complete_count = 0
+        review_count = 0
 
         for frame in self.store.iter_all_frames():
             if frame.status != FrameStatus.ANNOTATED:
                 continue
+            has_unsure = any(b.box_status == BoxStatus.UNSURE for b in frame.boxes)
+            if has_unsure:
+                review_count += 1
+            else:
+                complete_count += 1
             for box in frame.boxes:
                 cat_name = CATEGORY_NAMES.get(box.category, "unknown")
                 by_category[cat_name] = by_category.get(cat_name, 0) + 1
@@ -264,7 +327,8 @@ class Exporter:
             },
             "frames": {
                 "total": stats["total"],
-                "annotated": stats["annotated"],
+                "complete": complete_count,
+                "needs_review": review_count,
                 "skipped": stats["skipped"],
                 "remaining": stats["unviewed"] + stats["in_progress"],
             },

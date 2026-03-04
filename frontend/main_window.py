@@ -442,6 +442,9 @@ class MainWindow(QMainWindow):
         self._shortcuts.open_review.connect(self._open_review_panel)
         self._shortcuts.open_export_preview.connect(self._open_export_preview)
 
+        # Unsure
+        self._shortcuts.mark_unsure.connect(self._mark_box_unsure)
+
         # Box visibility toggle
         self._shortcuts.cycle_box_visibility.connect(self._cycle_box_visibility)
 
@@ -976,13 +979,16 @@ class MainWindow(QMainWindow):
             self._assign_category(categories[n - 1])
             return
 
-        # 2) Selected AI PENDING box on canvas → assign category
+        # 2) Selected AI PENDING or UNSURE box on canvas → assign category
         if 1 <= n <= 6 and self._current_frame:
             idx = self._canvas.get_selected_index()
             if idx >= 0 and idx < len(self._current_frame.boxes):
                 box = self._current_frame.boxes[idx]
                 if box.box_status == BoxStatus.PENDING:
                     self._assign_pending_ai_box(idx, categories[n - 1])
+                    return
+                if box.box_status == BoxStatus.UNSURE:
+                    self._assign_unsure_box(idx, categories[n - 1])
                     return
 
         # 3) Otherwise → metadata option
@@ -1092,6 +1098,60 @@ class MainWindow(QMainWindow):
         self._store.update_box(self._current_filename, box.id,
                                truncated=not box.truncated)
         self._reload_boxes()
+
+    # ── Unsure ──
+
+    def _mark_box_unsure(self):
+        """U key: mark selected box as unsure, show note popup."""
+        idx = self._canvas.get_selected_index()
+        if idx < 0 or not self._current_frame or not self._current_filename:
+            self._toast.show_message("Select a box first", "warning")
+            return
+        box = self._current_frame.boxes[idx]
+        existing_note = box.unsure_note or ""
+
+        from frontend.unsure_popup import UnsurePopup
+        popup = UnsurePopup(existing_note=existing_note, parent=self)
+        self._shortcuts.set_popup_open(True)
+        result = popup.exec()
+        self._shortcuts.set_popup_open(False)
+
+        if result == QDialog.DialogCode.Accepted:
+            note = popup.get_note()
+            self._store.update_box(
+                self._current_filename, box.id,
+                box_status="unsure",
+                unsure_note=note if note else None,
+            )
+            self._reload_boxes()
+            self._toast.show_message("Box marked as unsure", "info")
+
+    def _assign_unsure_box(self, idx: int, category: Category):
+        """Re-assign an UNSURE box: clear unsure status and assign category."""
+        box = self._current_frame.boxes[idx]
+        roster = self._get_roster_for_category(category)
+        if roster:
+            popup = PlayerPopup(roster, self)
+            self._shortcuts.set_popup_open(True)
+            result = popup.exec()
+            self._shortcuts.set_popup_open(False)
+            if result != PlayerPopup.DialogCode.Accepted:
+                self._toast.show_message(t("toast.box_cancelled"), "warning")
+                return
+            jersey, name = popup.get_result()
+            self._store.update_box(
+                self._current_filename, box.id,
+                category=category, box_status="finalized",
+                unsure_note=None, jersey_number=jersey, player_name=name,
+            )
+        else:
+            self._store.update_box(
+                self._current_filename, box.id,
+                category=category, box_status="finalized",
+                unsure_note=None,
+            )
+        self._reload_boxes()
+        self._toast.show_message("Unsure status cleared", "success")
 
     # ── Box selection / manipulation ──
 
@@ -1406,6 +1466,12 @@ class MainWindow(QMainWindow):
         self._store.set_exported_filename(self._current_filename, exported)
         self._frames[self._current_row]["status"] = "annotated"
         self._filmstrip.update_status(self._current_row, "annotated")
+
+        # Update filmstrip dot: orange if unsure boxes, green if complete
+        has_unsure = any(b.box_status == BoxStatus.UNSURE for b in self._current_frame.boxes)
+        dot_color = QColor("#FF6B35") if has_unsure else QColor("#27AE60")
+        self._filmstrip.update_dot(self._current_row, dot_color)
+
         self._toast.show_message(t("toast.exported", exported=exported), "success")
 
         # Track stats + backup
@@ -1423,6 +1489,7 @@ class MainWindow(QMainWindow):
                                      skip_reason="manual")
         self._frames[self._current_row]["status"] = "skipped"
         self._filmstrip.update_status(self._current_row, "skipped")
+        self._filmstrip.update_dot(self._current_row, QColor("#888888"))
         self._toast.show_message(t("toast.frame_skipped"), "skip")
 
         # Track stats

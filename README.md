@@ -318,21 +318,30 @@ Preview what will be exported before running the export. Choose between **COCO J
 
 ### COCO JSON (default)
 
+Exported frames are split into two folders based on annotation confidence:
+- **`complete/`** — all boxes are finalized (ready for training)
+- **`needs_review/`** — at least one box is marked unsure (needs expert review)
+
 ```
 your-folder/
 ├── annotations.db
 └── output/
-    ├── frames/            # Renamed images for RT-DETR
-    ├── annotations/       # Per-frame COCO JSON
-    ├── crops/             # Cropped player images for Re-ID
-    │   ├── home_07_Griezmann/   # Home players (named)
-    │   ├── home_19_Alvarez/
-    │   ├── away_09_Haaland/     # Opponents (named, if roster loaded)
-    │   ├── away/                # Opponents (unnamed, no roster)
-    │   ├── referee/
-    │   └── ball/
-    ├── coco_dataset.json  # Combined COCO dataset
-    └── summary.json       # Annotation statistics
+    ├── complete/
+    │   ├── frames/            # Renamed images (all boxes finalized)
+    │   ├── annotations/       # Per-frame COCO JSON
+    │   ├── crops/             # Cropped player images for Re-ID
+    │   │   ├── home_07_Griezmann/
+    │   │   ├── away/
+    │   │   ├── referee/
+    │   │   └── ball/
+    │   └── coco_dataset.json  # Combined COCO dataset
+    ├── needs_review/
+    │   ├── frames/            # Frames with unsure boxes
+    │   ├── annotations/       # Per-frame COCO JSON
+    │   ├── crops/
+    │   ├── coco_dataset.json
+    │   └── review_manifest.json  # Unsure box details + notes
+    └── summary.json           # Overall statistics
 ```
 
 ### YOLO TXT
@@ -418,6 +427,7 @@ Exporter reads DB ──▶ COCO JSON / YOLO TXT + renamed frames + Re-ID crops
 | `1-6` (pending box) | Assign box category |
 | `F` / `G` / `H` | Occlusion: visible / partial / heavy |
 | `T` | Toggle truncated |
+| `U` | Mark selected box as unsure (with optional note) |
 | `Ctrl+Z` | Undo last box |
 | `Delete` | Delete selected box |
 | `Ctrl+S` | Force save |

@@ -65,7 +65,7 @@ class AnnotationPanel(QWidget):
         self._delete_btn.clicked.connect(self.delete_requested.emit)
         layout.addWidget(self._delete_btn)
 
-        # ── Keyboard shortcut reference ──
+        # ── Keyboard shortcut reference (scrollable) ──
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #404060;")
@@ -74,7 +74,25 @@ class AnnotationPanel(QWidget):
         self._help_label = QLabel()
         self._help_label.setWordWrap(True)
         self._help_label.setStyleSheet("color: #8888A0; font-size: 11px; padding: 4px;")
-        layout.addWidget(self._help_label)
+        self._help_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        scroll = QScrollArea()
+        scroll.setWidget(self._help_label)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical {
+                background: #2A2A3C; width: 6px; border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: #505070; border-radius: 3px; min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        layout.addWidget(scroll)
 
         self._update_help_text()
 
@@ -88,6 +106,7 @@ class AnnotationPanel(QWidget):
         self._help_label.setText(
             f"<b style='color:#FFA500;'>{t('help.shortcuts_title')}</b><br>"
             "<br>"
+            # ── Category ──
             f"<b style='color:#AAA;'>{t('help.category_label')}</b><br>"
             f"<span style='color:#E74C3C;'>1</span> {t('help.category_home_player')}<br>"
             f"<span style='color:#3498DB;'>2</span> {t('help.category_opponent')}<br>"
@@ -96,29 +115,50 @@ class AnnotationPanel(QWidget):
             f"<span style='color:#F1C40F;'>5</span> {t('help.category_referee')}<br>"
             f"<span style='color:#2ECC71;'>6</span> {t('help.category_ball')}<br>"
             "<br>"
+            # ── Metadata ──
             f"<b style='color:#AAA;'>{t('help.metadata_label')}</b><br>"
             f"<span style='color:#F5A623;'>Tab</span> {t('help.next_dimension')}<br>"
             f"<span style='color:#F5A623;'>Shift+Tab</span> {t('help.prev_dimension')}<br>"
             f"<span style='color:#CCC;'>1-9</span> {t('help.select_option')}<br>"
             "<br>"
+            # ── Occlusion ──
             f"<b style='color:#AAA;'>{t('help.occlusion_label')}</b><br>"
             f"<span style='color:#CCC;'>F</span> {t('help.occlusion_visible')} &nbsp;"
             f"<span style='color:#CCC;'>G</span> {t('help.occlusion_partial')} &nbsp;"
             f"<span style='color:#CCC;'>H</span> {t('help.occlusion_heavy')}<br>"
             f"<span style='color:#CCC;'>T</span> {t('help.toggle_truncated')}<br>"
+            f"<span style='color:#FF6B35;'>U</span> Mark box unsure<br>"
             "<br>"
+            # ── Zoom & View ──
+            "<b style='color:#AAA;'>Zoom &amp; View</b><br>"
+            "<span style='color:#CCC;'>Scroll</span> Zoom in/out<br>"
+            "<span style='color:#CCC;'>Cmd/Ctrl +=</span> Zoom in<br>"
+            "<span style='color:#CCC;'>Cmd/Ctrl -</span> Zoom out<br>"
+            "<span style='color:#CCC;'>0</span> Reset zoom<br>"
+            "<span style='color:#CCC;'>\u2191\u2193\u2190\u2192</span> Pan (zoomed)<br>"
+            "<span style='color:#9B59B6;'>B</span> Cycle box visibility<br>"
+            "<br>"
+            # ── Navigation ──
             f"<b style='color:#AAA;'>{t('help.navigation_label')}</b><br>"
             f"<span style='color:#4A90D9;'>Enter</span> {t('help.export_next')}<br>"
             f"<span style='color:#D94A4A;'>Esc</span> {t('help.skip_next')}<br>"
             f"<span style='color:#CCC;'>\u2190 \u2192</span> {t('help.prev_next_frame')}<br>"
             f"<span style='color:#CCC;'>Ctrl+Z</span> {t('help.undo_last_box')}<br>"
-            f"<span style='color:#CCC;'>Del</span> {t('help.delete_selected')}"
+            f"<span style='color:#CCC;'>Del</span> {t('help.delete_selected')}<br>"
+            "<br>"
+            # ── Tools ──
+            "<b style='color:#AAA;'>Tools</b><br>"
+            "<span style='color:#CCC;'>Ctrl+H</span> Health Dashboard<br>"
+            "<span style='color:#CCC;'>Ctrl+R</span> Review &amp; Edit<br>"
+            "<span style='color:#CCC;'>Ctrl+E</span> Export Preview<br>"
+            "<span style='color:#CCC;'>Ctrl+S</span> Force save"
         )
 
     def update_boxes(self, boxes: list[BoundingBox]):
         self._list.blockSignals(True)
         self._list.clear()
         pending_count = 0
+        unsure_count = 0
         finalized_count = 0
         for box in boxes:
             if box.box_status == BoxStatus.PENDING:
@@ -128,6 +168,22 @@ class AnnotationPanel(QWidget):
                 label = f"? {cls}{conf}"
                 item = QListWidgetItem(label)
                 item.setForeground(QColor("#F5A623"))
+            elif box.box_status == BoxStatus.UNSURE:
+                unsure_count += 1
+                if box.jersey_number is not None and box.player_name:
+                    parts = box.player_name.split()
+                    short = parts[-1] if parts else ""
+                    label = f"? #{box.jersey_number} {short}"
+                elif box.category is not None:
+                    cat_name = CATEGORY_NAMES.get(box.category, "unknown")
+                    label = f"? {cat_name}"
+                else:
+                    label = "? unsure"
+                if box.unsure_note:
+                    note_preview = box.unsure_note[:20]
+                    label += f" [{note_preview}]"
+                item = QListWidgetItem(label)
+                item.setForeground(QColor("#FF6B35"))
             else:
                 finalized_count += 1
                 label = self._format_box(box)
@@ -137,12 +193,15 @@ class AnnotationPanel(QWidget):
             self._list.addItem(item)
         self._list.blockSignals(False)
 
-        # Update pending counter
-        if pending_count > 0:
-            self._pending_counter.setText(
-                t("ai.pending_counter",
-                  total=len(boxes), pending=pending_count, assigned=finalized_count)
-            )
+        # Update pending/unsure counter
+        if pending_count > 0 or unsure_count > 0:
+            parts = []
+            if pending_count > 0:
+                parts.append(f"{pending_count} pending")
+            if unsure_count > 0:
+                parts.append(f"{unsure_count} unsure")
+            counter_text = f"{len(boxes)} total \u2014 {', '.join(parts)}, {finalized_count} assigned"
+            self._pending_counter.setText(counter_text)
             self._pending_counter.setVisible(True)
         else:
             self._pending_counter.setVisible(False)

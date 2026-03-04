@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 
 from backend.annotation_store import AnnotationStore
 from backend.i18n import t
-from backend.models import CATEGORY_NAMES, FrameStatus
+from backend.models import BoxStatus, CATEGORY_NAMES, FrameStatus
 
 # ── Design tokens (unified with project palette) ──
 _BG = "#1E1E2E"
@@ -76,12 +76,36 @@ class ExportPreviewDialog(QDialog):
         )
         layout.addWidget(title)
 
-        # Stats summary
+        # Stats summary — compute complete vs needs_review breakdown
         stats = store.get_session_stats()
-        summary = QLabel(t("export.summary",
-                           annotated=stats["annotated"],
-                           skipped=stats["skipped"],
-                           total=stats["total"]))
+        complete_count = 0
+        review_count = 0
+        unsure_boxes_total = 0
+        for frame in store.iter_all_frames():
+            if frame.status != FrameStatus.ANNOTATED:
+                continue
+            has_unsure = any(b.box_status == BoxStatus.UNSURE for b in frame.boxes)
+            if has_unsure:
+                review_count += 1
+                unsure_boxes_total += sum(
+                    1 for b in frame.boxes if b.box_status == BoxStatus.UNSURE
+                )
+            else:
+                complete_count += 1
+        self._complete_count = complete_count
+        self._review_count = review_count
+        self._unsure_boxes_total = unsure_boxes_total
+
+        summary_parts = [
+            f"Complete: {complete_count}",
+        ]
+        if review_count > 0:
+            summary_parts.append(
+                f"Needs Review: {review_count} ({unsure_boxes_total} unsure boxes)"
+            )
+        summary_parts.append(f"Skipped: {stats['skipped']}")
+        summary_parts.append(f"Total: {stats['total']}")
+        summary = QLabel(" | ".join(summary_parts))
         summary.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
         layout.addWidget(summary)
 
@@ -185,14 +209,28 @@ class ExportPreviewDialog(QDialog):
             lines.append("Format: COCO JSON")
             lines.append(f"Output: {self._output_folder}/output/")
             lines.append("")
-            lines.append("Structure:")
-            lines.append("  frames/         \u2014 renamed images")
-            lines.append("  annotations/    \u2014 per-frame COCO JSON")
-            lines.append("  crops/          \u2014 cropped player images")
-            lines.append("  coco_dataset.json  \u2014 combined dataset")
-            lines.append("  summary.json    \u2014 statistics")
+            lines.append(f"Complete: {self._complete_count} frames \u2192 complete/")
+            if self._review_count > 0:
+                lines.append(
+                    f"Needs Review: {self._review_count} frames "
+                    f"({self._unsure_boxes_total} unsure boxes) \u2192 needs_review/"
+                )
+            lines.append(f"Skipped: {stats['skipped']}")
             lines.append("")
-            lines.append(f"Frames to export: {stats['annotated']}")
+            lines.append("Structure:")
+            lines.append("  complete/")
+            lines.append("    frames/         \u2014 renamed images")
+            lines.append("    annotations/    \u2014 per-frame COCO JSON")
+            lines.append("    crops/          \u2014 cropped player images")
+            lines.append("    coco_dataset.json")
+            if self._review_count > 0:
+                lines.append("  needs_review/")
+                lines.append("    frames/         \u2014 frames with unsure boxes")
+                lines.append("    annotations/    \u2014 per-frame COCO JSON")
+                lines.append("    crops/          \u2014 cropped player images")
+                lines.append("    coco_dataset.json")
+                lines.append("    review_manifest.json \u2014 unsure box details")
+            lines.append("  summary.json      \u2014 statistics")
 
         self._preview.setText("\n".join(lines))
 
