@@ -43,6 +43,8 @@ def _box_to_dict(box: BoundingBox) -> dict:
         "detected_class": box.detected_class,
         "unsure_note": box.unsure_note,
     }
+    d["inherited"] = box.inherited
+    d["out_of_frame"] = box.out_of_frame
     return d
 
 
@@ -64,6 +66,8 @@ def _dict_to_box(d: dict, frame_id: Optional[int] = None) -> BoundingBox:
         confidence=d.get("confidence"),
         detected_class=d.get("detected_class"),
         unsure_note=d.get("unsure_note"),
+        inherited=bool(d.get("inherited", False)),
+        out_of_frame=bool(d.get("out_of_frame", False)),
     )
 
 
@@ -211,6 +215,17 @@ class AnnotationStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         data["exported_filename"] = exported
         self._atomic_write(path, data)
+
+    def delete_frame_annotation(self, filename: str) -> bool:
+        """Delete the annotation JSON file for *filename*.
+
+        Returns ``True`` if the file existed and was removed.
+        """
+        path = self._json_path(filename)
+        if path.exists():
+            path.unlink()
+            return True
+        return False
 
     # -- Box-level operations -----------------------------------------------
 

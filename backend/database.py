@@ -143,6 +143,8 @@ class DatabaseManager:
             ("confidence", "NULL"),
             ("detected_class", "NULL"),
             ("unsure_note", "NULL"),
+            ("inherited", "0"),
+            ("out_of_frame", "0"),
         ]:
             if col not in existing_box:
                 self.conn.execute(f"ALTER TABLE boxes ADD COLUMN {col} TEXT DEFAULT {sql_default}")
@@ -304,15 +306,19 @@ class DatabaseManager:
                 source: str = "manual",
                 box_status: str = "finalized",
                 confidence: Optional[float] = None,
-                detected_class: Optional[str] = None) -> int:
+                detected_class: Optional[str] = None,
+                inherited: bool = False,
+                out_of_frame: bool = False) -> int:
         cur = self.conn.execute(
             "INSERT INTO boxes (frame_id, x, y, width, height, category, "
             "jersey_number, player_name, occlusion, truncated, "
-            "source, box_status, confidence, detected_class) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source, box_status, confidence, detected_class, "
+            "inherited, out_of_frame) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (frame_id, x, y, width, height, category.value,
              jersey_number, player_name, occlusion.value, int(truncated),
-             source, box_status, confidence, detected_class),
+             source, box_status, confidence, detected_class,
+             int(inherited), int(out_of_frame)),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -321,7 +327,7 @@ class DatabaseManager:
         allowed = {"x", "y", "width", "height", "category", "jersey_number",
                     "player_name", "occlusion", "truncated",
                     "source", "box_status", "confidence", "detected_class",
-                    "unsure_note"}
+                    "unsure_note", "inherited", "out_of_frame"}
         updates = {}
         for k, v in kwargs.items():
             if k not in allowed:
@@ -331,6 +337,10 @@ class DatabaseManager:
             elif k == "occlusion" and isinstance(v, Occlusion):
                 v = v.value
             elif k == "truncated" and isinstance(v, bool):
+                v = int(v)
+            elif k == "inherited" and isinstance(v, bool):
+                v = int(v)
+            elif k == "out_of_frame" and isinstance(v, bool):
                 v = int(v)
             updates[k] = v
         if not updates:
@@ -487,4 +497,6 @@ class DatabaseManager:
             confidence=row["confidence"] if "confidence" in keys else None,
             detected_class=row["detected_class"] if "detected_class" in keys else None,
             unsure_note=row["unsure_note"] if "unsure_note" in keys else None,
+            inherited=bool(row["inherited"]) if "inherited" in keys and row["inherited"] else False,
+            out_of_frame=bool(row["out_of_frame"]) if "out_of_frame" in keys and row["out_of_frame"] else False,
         )

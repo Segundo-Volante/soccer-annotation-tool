@@ -97,6 +97,7 @@ class StatsBar(QWidget):
     """Compact stats bar showing real-time annotation metrics."""
 
     shortcuts_toggled = pyqtSignal(bool)
+    delete_frame_clicked = pyqtSignal()
 
     def __init__(self, stats: SessionStats, parent=None):
         super().__init__(parent)
@@ -153,6 +154,22 @@ class StatsBar(QWidget):
         self._box_vis_label = QLabel("Boxes: Full")
         self._box_vis_label.setStyleSheet("color: #A0A0C0; font-size: 11px; font-weight: bold;")
         layout.addWidget(self._box_vis_label)
+
+        # Delete frame button
+        self._delete_frame_btn = QPushButton("\U0001F5D1")  # wastebasket icon
+        self._delete_frame_btn.setToolTip("Delete current frame (Ctrl+Delete)")
+        self._delete_frame_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._delete_frame_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_frame_btn.setFixedSize(22, 18)
+        self._delete_frame_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #8888A0; font-size: 12px;
+                padding: 0; border: none; border-radius: 3px;
+            }
+            QPushButton:hover { background: rgba(217, 74, 74, 0.25); color: #D94A4A; }
+        """)
+        self._delete_frame_btn.clicked.connect(self.delete_frame_clicked.emit)
+        layout.addWidget(self._delete_frame_btn)
 
         self._today_label = QLabel()
         self._today_label.setStyleSheet("color: #8888A0; font-size: 11px;")

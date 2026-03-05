@@ -117,6 +117,35 @@ class ProjectConfig:
         )
         self._data = data
 
+    # ── ReID targets & resample thresholds ──
+
+    _DEFAULT_REID_TARGETS = {"wide": 150, "medium": 60, "closeup": 20}
+    _DEFAULT_RESAMPLE_THRESHOLDS = {
+        "wide_min_player_ratio": 0.5,
+        "medium_min_player_frames": 1,
+        "closeup_min_player_frames": 1,
+        "min_sequence_length": 3,
+        "estimated_resample_interval": 0.3,
+    }
+
+    def get_reid_targets(self) -> dict[str, int]:
+        if not self._data:
+            return dict(self._DEFAULT_REID_TARGETS)
+        return self._data.get("reid_targets", dict(self._DEFAULT_REID_TARGETS))
+
+    def get_resample_thresholds(self) -> dict:
+        if not self._data:
+            return dict(self._DEFAULT_RESAMPLE_THRESHOLDS)
+        return self._data.get("resample_thresholds", dict(self._DEFAULT_RESAMPLE_THRESHOLDS))
+
+    def save_reid_settings(self, targets: dict[str, int], thresholds: dict):
+        """Persist reid_targets and resample_thresholds to project.json."""
+        if not self._data:
+            self._data = {}
+        self._data["reid_targets"] = targets
+        self._data["resample_thresholds"] = thresholds
+        self.save(self._data)
+
     def save_home_team(self, team_name: str, roster_csv_path: str):
         """Write config/teams/home.json."""
         home_json = self.config_dir / "teams" / "home.json"

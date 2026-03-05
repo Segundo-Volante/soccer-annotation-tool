@@ -94,6 +94,12 @@ class AnnotationCanvas(QWidget):
         self._resize_handle = ResizeHandle.NONE
         self._resize_origin: Optional[tuple] = None
 
+        self._show_oof: bool = False
+
+    def set_show_out_of_frame(self, show: bool):
+        self._show_oof = show
+        self.update()
+
     def set_image(self, image_path: str):
         self._pixmap = QPixmap(image_path)
         self._boxes = []
@@ -577,6 +583,10 @@ class AnnotationCanvas(QWidget):
         label_font = QFont("Arial", 9, QFont.Weight.Bold)
         vis = self._box_visibility
         for i, box in enumerate(self._boxes):
+            # Skip out-of-frame boxes unless showing them
+            if box.out_of_frame and not self._show_oof:
+                continue
+
             is_selected = (i == self._selected_index)
             rect = self._image_rect_to_screen(box.x, box.y, box.width, box.height)
 
@@ -711,7 +721,43 @@ class AnnotationCanvas(QWidget):
                     painter.drawRect(rect)
             else:
                 color = CATEGORY_COLORS.get(box.category, QColor("#AAA"))
-                if render_full:
+                if box.inherited:
+                    # INHERITED box: dashed outline in category color at lower opacity
+                    if render_full:
+                        inherited_color = QColor(color)
+                        inherited_color.setAlpha(180)
+                        if is_selected:
+                            pen = QPen(QColor(0, 255, 0), 3, Qt.PenStyle.DashLine)
+                        else:
+                            pen = QPen(inherited_color, 2, Qt.PenStyle.DashLine)
+                        painter.setPen(pen)
+                        painter.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 15)))
+                        painter.drawRect(rect)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+                        # "Inherited" badge
+                        painter.setFont(label_font)
+                        badge_text = "inherited"
+                        fm = painter.fontMetrics()
+                        tw = fm.horizontalAdvance(badge_text) + 6
+                        th = fm.height() + 2
+                        badge_x = rect.right() - tw - 2
+                        badge_y = rect.top() - th - 1
+                        if badge_y < 0:
+                            badge_y = rect.top() + 2
+                        painter.setBrush(QBrush(QColor(80, 80, 100, 200)))
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.drawRoundedRect(badge_x, badge_y, tw, th, 3, 3)
+                        painter.setPen(QColor("#AAA"))
+                        painter.drawText(badge_x + 3, badge_y + fm.ascent(), badge_text)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                    else:
+                        subtle_color = QColor(color)
+                        subtle_color.setAlpha(60)
+                        painter.setPen(QPen(subtle_color, 1, Qt.PenStyle.DashLine))
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawRect(rect)
+                elif render_full:
                     # FINALIZED box: category-colored solid border
                     if is_selected:
                         pen = QPen(QColor(0, 255, 0), 3)

@@ -184,6 +184,21 @@ class FileManager:
             return {}
 
     @staticmethod
+    def load_frame_metadata_raw(bundle_path: str | Path) -> dict:
+        """Load frame_metadata.json and return the full raw JSON dict.
+
+        Returns empty dict on failure.  Includes session_info, sequence_summary, etc.
+        """
+        metadata_path = Path(bundle_path) / "frame_metadata.json"
+        if not metadata_path.exists():
+            return {}
+        try:
+            return json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to read frame_metadata.json: %s", e)
+            return {}
+
+    @staticmethod
     def sort_frames_by_priority(
         filenames: list[str],
         frame_metadata: dict[str, dict],

@@ -87,6 +87,8 @@ class BoundingBox:
     confidence: Optional[float] = None
     detected_class: Optional[str] = None  # raw model class: "player", "goalkeeper", "person", etc.
     unsure_note: Optional[str] = None  # free-text note when status is UNSURE
+    inherited: bool = False  # whether this box was auto-inherited from an original session
+    out_of_frame: bool = False  # whether >50% of the box was out of frame bounds
 
 
 @dataclass

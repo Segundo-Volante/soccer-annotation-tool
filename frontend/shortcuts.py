@@ -37,6 +37,7 @@ class ShortcutHandler(QObject):
     # Edit
     undo = pyqtSignal()                  # Ctrl+Z
     delete_box = pyqtSignal()            # Delete
+    delete_frame = pyqtSignal()          # Ctrl+Delete / Ctrl+Backspace
     force_save = pyqtSignal()            # Ctrl+S
 
     # AI-Assisted bulk operations
@@ -82,6 +83,9 @@ class ShortcutHandler(QObject):
         # Ctrl combos
         if ctrl and key == Qt.Key.Key_Z:
             self.undo.emit()
+            return True
+        if ctrl and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_frame.emit()
             return True
         if ctrl and shift and key == Qt.Key.Key_S:
             self.swap_teams.emit()

@@ -331,6 +331,12 @@ class MainWindow(QMainWindow):
         # Squad panel click-to-assign signals
         self._annotation_panel.squad_panel.player_clicked.connect(self._on_squad_player_clicked)
         self._annotation_panel.squad_panel.quick_assign_clicked.connect(self._on_squad_quick_assign)
+        # Annotation inheritance signals
+        self._annotation_panel.accept_all_inherited.connect(self._accept_all_inherited)
+        self._annotation_panel.clear_inherited.connect(self._clear_inherited)
+        self._annotation_panel.show_out_of_frame_toggled.connect(self._canvas.set_show_out_of_frame)
+        # Sequence badge click
+        self._annotation_panel.sequence_badge_clicked.connect(self._on_sequence_badge_clicked)
         mid.addWidget(self._annotation_panel)
 
         root.addLayout(mid, stretch=1)
@@ -459,6 +465,7 @@ class MainWindow(QMainWindow):
         # Edit
         self._shortcuts.undo.connect(self._undo_last_box)
         self._shortcuts.delete_box.connect(self._delete_selected_box)
+        self._shortcuts.delete_frame.connect(self._delete_current_frame)
         self._shortcuts.force_save.connect(self._force_save)
 
         # AI bulk operations
@@ -708,13 +715,19 @@ class MainWindow(QMainWindow):
         self._team_colors: Optional[dict] = None
 
         # Load bundle frame metadata if this is a screenshotter bundle
+        self._bundle_metadata_raw: dict = {}
         if self._is_bundle:
             try:
                 bundle_root = FileManager.get_bundle_root(folder)
                 self._bundle_frame_metadata = FileManager.load_frame_metadata(bundle_root)
+                self._bundle_metadata_raw = FileManager.load_frame_metadata_raw(bundle_root)
+                # Schema version check
+                if self._bundle_frame_metadata:
+                    self._check_frame_metadata_version(bundle_root)
             except Exception as e:
                 logger.warning("Failed to load bundle metadata: %s", e)
                 self._bundle_frame_metadata = {}
+                self._bundle_metadata_raw = {}
                 self._is_bundle = False
         else:
             self._bundle_frame_metadata = {}
@@ -816,6 +829,8 @@ class MainWindow(QMainWindow):
             self._store, folder, output_path, team_name=team_name,
             has_opponent_roster=self._opponent_roster is not None,
             session_meta=self._session_meta,
+            frame_metadata=self._bundle_frame_metadata if self._is_bundle else None,
+            bundle_metadata_raw=self._bundle_metadata_raw if self._is_bundle else None,
         )
 
         # Load squad data into the Squad Sheet panel
@@ -970,6 +985,7 @@ class MainWindow(QMainWindow):
         self._shortcuts_bar = ShortcutsBar()
         root.insertWidget(insert_idx + 1, self._shortcuts_bar)
         self._stats_bar.shortcuts_toggled.connect(self._shortcuts_bar.setVisible)
+        self._stats_bar.delete_frame_clicked.connect(self._delete_current_frame)
 
     def _check_backup(self):
         """Called by timer — triggers auto-backup if time interval reached."""
@@ -1029,7 +1045,10 @@ class MainWindow(QMainWindow):
             result = dialog.get_result()
             if result["format"] == "yolo":
                 self._run_yolo_export(result["output_folder"])
-            # COCO export uses the existing per-frame export flow
+            # COCO export uses the existing per-frame export flow;
+            # after any format, show the crop distribution panel
+            if self._exporter:
+                self._show_crop_distribution_panel()
 
     def _run_yolo_export(self, output_folder: str):
         """Run YOLO format export."""
@@ -1141,6 +1160,16 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self._stats_bar.set_video_time("")
+
+        # Update sequence badge
+        if self._is_bundle and self._bundle_frame_metadata:
+            meta = self._bundle_frame_metadata.get(filename, {})
+            seq_id = meta.get("sequence_id", "")
+            seq_pos = meta.get("sequence_position", 0)
+            seq_len = meta.get("sequence_length", 0)
+            self._annotation_panel.update_sequence_badge(seq_id, seq_pos, seq_len)
+        else:
+            self._annotation_panel.update_sequence_badge("", 0, 0)
 
         # Update filmstrip selection
         self._filmstrip.select_row(row)
@@ -1474,6 +1503,57 @@ class MainWindow(QMainWindow):
         self._store.delete_box(filename, box_id)
         self._reload_boxes()
 
+    # ── Frame deletion ──
+
+    def _delete_current_frame(self):
+        """Delete the current frame (image + annotation) after confirmation."""
+        if not self._current_filename or not self._folder_path or self._current_row < 0:
+            return
+
+        filename = self._current_filename
+        reply = QMessageBox.warning(
+            self,
+            "Delete Frame",
+            f"Delete frame \"{filename}\"?\n\n"
+            "This will permanently remove the image file and all its annotations.\n"
+            "This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        row = self._current_row
+
+        # 1. Delete annotation JSON
+        self._store.delete_frame_annotation(filename)
+
+        # 2. Delete image file
+        img_path = Path(self._folder_path) / filename
+        if img_path.exists():
+            img_path.unlink()
+
+        # 3. Remove from internal frames list
+        if 0 <= row < len(self._frames):
+            self._frames.pop(row)
+
+        # 4. Remove from filmstrip
+        self._filmstrip.remove_frame(row)
+
+        # 5. Navigate to next valid frame (or previous if at end)
+        if not self._frames:
+            # No frames left — clear canvas
+            self._current_row = -1
+            self._current_frame = None
+            self._current_filename = None
+            self._canvas.clear()
+            return
+
+        new_row = min(row, len(self._frames) - 1)
+        self._current_row = -1  # reset so _load_frame_at_row doesn't skip
+        self._filmstrip.select_row(new_row)
+        self._load_frame_at_row(new_row)
+
     # ── AI-Assisted mode ──
 
     def _run_ai_detection(self):
@@ -1494,6 +1574,10 @@ class MainWindow(QMainWindow):
         if self._detecting:
             logger.info("AI detection already in progress, skipping")
             return
+
+        # Cancel any leftover thread from a previous detection
+        # (handles race where _cleanup_detection_thread hasn't fired yet)
+        self._cancel_ai_detection()
 
         img_path = os.path.join(self._folder_path, self._current_filename)
         logger.info("Starting AI detection on: %s", img_path)
@@ -1584,8 +1668,71 @@ class MainWindow(QMainWindow):
         self._detection_overlay.stop()
         self._toast.show_message(f"Detection failed: {error_msg}", "warning", 3000)
 
+    def _cancel_ai_detection(self):
+        """Safely stop any running AI detection thread.
+
+        Disconnects all signals first to prevent race conditions,
+        then waits for the thread to finish before scheduling deletion.
+        """
+        if self._detection_worker is None and self._detection_thread is None:
+            return
+
+        # Disconnect ALL signals first to prevent _cleanup_detection_thread
+        # from firing on a stale reference after we've started a new detection
+        if self._detection_worker:
+            for sig_name in ("finished", "error"):
+                sig = getattr(self._detection_worker, sig_name, None)
+                if sig:
+                    try:
+                        sig.disconnect()
+                    except (TypeError, RuntimeError):
+                        pass
+        if self._detection_thread:
+            try:
+                self._detection_thread.started.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._detection_thread.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+
+        # Wait for thread to actually finish — quit() only works if the thread
+        # runs an event loop; detection threads run a blocking call, so we
+        # must just wait for the inference to complete naturally.
+        if self._detection_thread and self._detection_thread.isRunning():
+            self._detection_thread.quit()  # try, but won't help for blocking calls
+            if not self._detection_thread.wait(15000):  # 15s for heavy PyTorch inference
+                logger.warning("AI detection thread did not stop within 15s, "
+                               "will schedule cleanup later")
+                # Don't deleteLater a still-running thread — let it finish and
+                # become orphaned rather than crash
+                self._detection_worker = None
+                self._detection_thread = None
+                self._detecting = False
+                return
+
+        # Thread has stopped — safe to schedule deletion
+        if self._detection_worker:
+            self._detection_worker.deleteLater()
+            self._detection_worker = None
+        if self._detection_thread:
+            self._detection_thread.deleteLater()
+            self._detection_thread = None
+        self._detecting = False
+
     def _cleanup_detection_thread(self):
-        """Clean up thread objects after detection completes."""
+        """Clean up thread objects after detection completes naturally.
+
+        Only called via the thread's finished signal during normal completion.
+        Checks that the thread actually stopped before deleting.
+        """
+        # Guard: if _cancel_ai_detection already cleared these, skip
+        if self._detection_thread is None and self._detection_worker is None:
+            return
+        # Guard: if a new detection has started (references replaced), skip
+        if self._detection_thread and self._detection_thread.isRunning():
+            return
         if self._detection_worker:
             self._detection_worker.deleteLater()
             self._detection_worker = None
@@ -1967,7 +2114,77 @@ class MainWindow(QMainWindow):
             stats["annotated"], stats["skipped"], remaining,
         )
 
+    # ── Sequence & Inheritance ──
+
+    def _check_frame_metadata_version(self, bundle_root: Path):
+        """Check frame_metadata.json schema version and warn if newer."""
+        SUPPORTED_VERSION = "1.0"
+        metadata_path = bundle_root / "frame_metadata.json"
+        if not metadata_path.exists():
+            return
+        try:
+            import json
+            data = json.loads(metadata_path.read_text(encoding="utf-8"))
+            version = data.get("schema_version", "1.0")
+            if version != SUPPORTED_VERSION:
+                self._toast.show_message(
+                    f"frame_metadata.json uses a newer schema (v{version}). "
+                    "Some sequence features may be unavailable. "
+                    "Update the Annotation Tool for full support.",
+                    "warning", 6000,
+                )
+        except Exception:
+            pass
+
+    def _on_sequence_badge_clicked(self, sequence_id: str):
+        """Scroll the filmstrip to center the sequence group."""
+        # In sequence view, find the header for this sequence
+        if self._filmstrip.scroll_to_sequence_header(sequence_id):
+            return
+        # In all view, find the first frame of the sequence
+        if self._is_bundle and self._bundle_frame_metadata:
+            for i, f in enumerate(self._frames):
+                fname = f.get("filename", "")
+                meta = self._bundle_frame_metadata.get(fname, {})
+                if meta.get("sequence_id") == sequence_id:
+                    self._filmstrip.select_row(i)
+                    return
+
+    def _accept_all_inherited(self):
+        """Convert all inherited boxes on the current frame to normal."""
+        if not self._current_frame or not self._current_filename:
+            return
+        changed = False
+        for box in self._current_frame.boxes:
+            if box.inherited:
+                box.inherited = False
+                self._store.update_box(self._current_filename, box.id,
+                                       inherited=False)
+                changed = True
+        if changed:
+            self._canvas.set_boxes(self._current_frame.boxes)
+            self._annotation_panel.update_boxes(self._current_frame.boxes)
+            self._toast.show_message("Accepted all inherited annotations", "success")
+
+    def _clear_inherited(self):
+        """Remove all inherited boxes from the current frame."""
+        if not self._current_frame or not self._current_filename:
+            return
+        inherited_ids = [b.id for b in self._current_frame.boxes if b.inherited]
+        for box_id in inherited_ids:
+            self._store.delete_box(self._current_filename, box_id)
+        self._current_frame.boxes = [b for b in self._current_frame.boxes if not b.inherited]
+        self._canvas.set_boxes(self._current_frame.boxes)
+        self._annotation_panel.update_boxes(self._current_frame.boxes)
+        if inherited_ids:
+            self._toast.show_message(
+                f"Cleared {len(inherited_ids)} inherited annotation(s)", "info")
+
     def _show_completion_dialog(self):
+        # Show crop distribution panel before completion summary
+        if self._exporter:
+            self._show_crop_distribution_panel()
+
         # Show the rich session summary dialog if stats available
         if self._session_stats:
             dialog = SessionSummaryDialog(self._session_stats, self)
@@ -1989,6 +2206,65 @@ class MainWindow(QMainWindow):
             msg.setStyleSheet("QMessageBox { background: #2A2A2A; } "
                               "QLabel { color: #EEE; font-size: 13px; }")
             msg.exec()
+
+    def _show_crop_distribution_panel(self):
+        """Show the Crop Distribution Panel after all frames exported."""
+        from frontend.crop_distribution_dialog import CropDistributionDialog
+
+        targets = self._project_config.get_reid_targets()
+        thresholds = self._project_config.get_resample_thresholds()
+        # Check if bundle actually has sequence data (not just frame metadata)
+        has_seq = bool(
+            self._bundle_metadata_raw.get("sequence_summary")
+            and any(
+                m.get("sequence_id")
+                for m in self._bundle_frame_metadata.values()
+            )
+        )
+
+        # Compute distribution
+        distribution = self._exporter.compute_crop_distribution(targets)
+
+        dialog = CropDistributionDialog(
+            distribution, has_seq, targets, thresholds, self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        action = dialog.get_result_action()
+        final_targets = dialog.get_targets()
+        final_thresholds = dialog.get_thresholds()
+
+        # Save defaults if requested
+        if dialog.should_save_defaults():
+            self._project_config.save_reid_settings(final_targets, final_thresholds)
+
+        # Recompute with possibly updated targets
+        if final_targets != targets:
+            distribution = self._exporter.compute_crop_distribution(final_targets)
+
+        # Write crop_distribution.json
+        self._exporter.generate_crop_distribution(final_targets)
+
+        # Generate resample request if requested
+        if action == CropDistributionDialog.RESULT_EXPORT_AND_RESAMPLE:
+            resample_path = self._exporter.generate_resample_request(
+                distribution, final_targets, final_thresholds,
+            )
+            if resample_path:
+                self._toast.show_message(
+                    f"Resample request saved: {Path(resample_path).name}",
+                    "success", 4000,
+                )
+            else:
+                self._toast.show_message(
+                    "No resample targets found (all players meet targets).",
+                    "info", 3000,
+                )
+        else:
+            self._toast.show_message(
+                "Crop distribution saved.", "success", 3000,
+            )
 
     # ── Collaboration ──
 
@@ -2219,10 +2495,11 @@ class MainWindow(QMainWindow):
             logger.error("Failed to open folder: %s", e)
 
     def closeEvent(self, event):
-        # Stop any running detection thread
-        if self._detection_thread and self._detection_thread.isRunning():
-            self._detection_thread.quit()
-            self._detection_thread.wait(3000)
+        # Stop any running AI detection thread (properly disconnects signals + waits)
+        self._cancel_ai_detection()
+        # Stop any running thumbnail loader thread
+        if hasattr(self, '_filmstrip') and self._filmstrip:
+            self._filmstrip._cancel_thumbnail_load()
         # Stop backup timer
         if self._backup_timer:
             self._backup_timer.stop()

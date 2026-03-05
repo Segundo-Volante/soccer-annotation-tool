@@ -585,3 +585,25 @@ football-annotation-tool/
 ## Documentation
 
 See [TUTORIAL.md](TUTORIAL.md) for the full usage guide, or open [TUTORIAL.pdf](TUTORIAL.pdf) for a printable version.
+
+---
+
+## Pre-Alpha Changelog
+
+### Annotation Tool Pre Alpha Bug Fixes & Feature Updates
+
+#### Bug Fixes
+
+- **QThread crash in thumbnail loader** — `QThread: Destroyed while thread is still running` SIGABRT when navigating frames quickly. The thumbnail loader thread was being destroyed before it finished loading. Fixed by disconnecting all signals before cleanup, using `thread.wait()` with timeout, and only calling `deleteLater()` after the thread has confirmed stopped.
+- **QThread crash in AI detection thread** — Same SIGABRT crash pattern but in the PyTorch/YOLO inference thread. Three root causes: (1) `closeEvent()` used `thread.quit()` which does nothing for blocking inference calls — the 3-second wait would timeout and Qt would destroy the still-running thread; (2) race condition where a finished detection's cleanup would accidentally delete a newly-started detection's thread; (3) no cleanup of previous threads before creating new ones. Fixed with a new `_cancel_ai_detection()` method that disconnects all signals, waits up to 15 seconds for inference to complete, and safely orphans threads that won't stop rather than crashing.
+- **Filmstrip async thumbnail loading crashes** — Replaced blocking `_load_all_thumbnails()` with a background QThread worker that loads thumbnails in batches of 20 and emits them to the main thread via signals, preventing UI freezes on large frame sets.
+- **Exporter crashes on edge cases** — Fixed field access errors and added defensive checks for missing annotation data during COCO JSON and YOLO TXT export.
+
+#### New Features
+
+- **Delete frame** — Added a delete frame feature accessible via the trash can button in the stats bar or `Ctrl+Delete`/`Ctrl+Backspace` keyboard shortcut. Shows a confirmation dialog before permanently removing the image file and all associated annotations. Properly cleans up all internal data structures (filmstrip, caches, dot colors, sequences).
+- **Async filmstrip thumbnails** — Thumbnails now load in the background using a worker thread, with batches rendered progressively. The UI stays responsive even with hundreds of frames.
+- **Crop distribution dialog** — New dialog for reviewing and managing Re-ID crop distribution across categories.
+- **Annotation store enhancements** — Added `delete_frame_annotation()` method for safe removal of per-frame JSON annotation files.
+- **Canvas improvements** — Enhanced box drawing and selection interactions with better visual feedback.
+- **Annotation panel updates** — Improved box list display with better category indicators and interaction patterns.

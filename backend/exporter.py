@@ -1,6 +1,8 @@
 import json
+import math
 import shutil
 import unicodedata
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -40,17 +42,32 @@ def _extract_lastname(full_name: str) -> str:
     return _ascii_normalize(parts[-1]) if parts else "Unknown"
 
 
+def _camera_angle_to_shot_type(camera_angle: str) -> str:
+    """Derive shot_type from camera_angle."""
+    if camera_angle in ("WIDE_CENTER", "WIDE_LEFT", "WIDE_RIGHT"):
+        return "wide"
+    if camera_angle == "MEDIUM":
+        return "medium"
+    if camera_angle == "CLOSEUP":
+        return "closeup"
+    return "other"
+
+
 class Exporter:
     def __init__(self, store: AnnotationStore, input_folder: str | Path,
                  output_folder: str | Path, team_name: str = "Home Team",
                  has_opponent_roster: bool = False,
-                 session_meta: Optional[dict] = None):
+                 session_meta: Optional[dict] = None,
+                 frame_metadata: dict[str, dict] | None = None,
+                 bundle_metadata_raw: dict | None = None):
         self.store = store
         self.input_folder = Path(input_folder)
         self.output_folder = Path(output_folder)
         self._team_name = team_name
         self._has_opponent_roster = has_opponent_roster
         self._session_meta = session_meta or {}
+        self._frame_metadata = frame_metadata or {}
+        self._bundle_metadata_raw = bundle_metadata_raw or {}
         self._meta_config = _load_metadata_config()
         # Create two-folder output structure
         self._complete_dir = self.output_folder / "complete"
@@ -90,7 +107,8 @@ class Exporter:
         # 3. Crop bounding boxes
         image = FileManager.load_image(src)
         if image is not None:
-            self._export_crops(image, frame, seq, target_dir)
+            crop_entries = self._export_crops(image, frame, seq, target_dir)
+            self._update_crops_metadata(crop_entries, target_dir)
 
         # 4. Update combined dataset for the target folder
         self._update_combined_dataset(coco_data, target_dir)
@@ -164,11 +182,12 @@ class Exporter:
         }
 
     def _export_crops(self, image, frame: FrameAnnotation, seq: int,
-                      target_dir: Path):
+                      target_dir: Path) -> list[dict]:
         source = frame.source or "Unknown"
         rnd = frame.match_round or "R00"
         opp_idx = 0
         ref_idx = 0
+        crop_entries: list[dict] = []
 
         for box in frame.boxes:
             crop = FileManager.crop_region(image, box.x, box.y, box.width, box.height)
@@ -210,6 +229,79 @@ class Exporter:
                 continue
 
             FileManager.save_image(crop, crop_path)
+
+            # Build crop metadata entry
+            crop_file = str(crop_path.relative_to(target_dir / "crops"))
+
+            # Determine player_team from category
+            if cat in (Category.HOME_PLAYER, Category.HOME_GK):
+                player_team = "home"
+            elif cat in (Category.OPPONENT, Category.OPPONENT_GK):
+                player_team = "away"
+            elif cat == Category.REFEREE:
+                player_team = "referee"
+            elif cat == Category.BALL:
+                player_team = "ball"
+            else:
+                player_team = None
+
+            # Look up frame metadata
+            meta = self._frame_metadata.get(frame.original_filename, {})
+
+            entry = {
+                "crop_file": crop_file,
+                "player_name": box.player_name or None,
+                "player_team": player_team,
+                "jersey_number": box.jersey_number,
+                "category": CATEGORY_NAMES[box.category],
+                "source_frame": frame.original_filename,
+                "bbox": {"x": box.x, "y": box.y, "w": box.width, "h": box.height},
+                "bbox_area_px": box.width * box.height,
+                "occlusion": box.occlusion.value,
+                "shot_type": _camera_angle_to_shot_type(meta.get("camera_angle", "")) if meta else None,
+                "camera_angle": meta.get("camera_angle") if meta else None,
+                "sequence_id": meta.get("sequence_id") if meta else None,
+                "sequence_type": meta.get("sequence_type") if meta else None,
+                "sequence_purpose": meta.get("sequence_purpose") if meta else None,
+                "sequence_position": meta.get("sequence_position") if meta else None,
+                "sequence_length": meta.get("sequence_length") if meta else None,
+                "video_time": meta.get("video_time") if meta else None,
+                "match_id": meta.get("match_id") if meta else None,
+                "is_resample": meta.get("is_resample", False) if meta else False,
+                "resample_of": meta.get("resample_of") if meta else None,
+            }
+            crop_entries.append(entry)
+
+        return crop_entries
+
+    def _update_crops_metadata(self, crop_entries: list[dict], target_dir: Path):
+        """Append crop entries to crops_metadata.json, deduplicating by crop_file."""
+        if not crop_entries:
+            return
+        meta_path = target_dir / "crops" / "crops_metadata.json"
+        if meta_path.exists():
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        else:
+            data = {
+                "export_info": {
+                    "export_date": datetime.now(timezone.utc).isoformat(),
+                    "match_id": self._session_meta.get("match_id", ""),
+                    "competition": self._session_meta.get("source", ""),
+                    "round": self._session_meta.get("match_round", ""),
+                    "home_team": self._team_name,
+                    "opponent": self._session_meta.get("opponent", ""),
+                    "total_crops": 0,
+                    "annotation_tool_version": "2.1.0",
+                },
+                "crops": [],
+            }
+        # Deduplicate: remove existing entries with same crop_file (re-export case)
+        existing_files = {e["crop_file"] for e in crop_entries}
+        data["crops"] = [c for c in data["crops"] if c.get("crop_file") not in existing_files]
+        data["crops"].extend(crop_entries)
+        data["export_info"]["total_crops"] = len(data["crops"])
+        data["export_info"]["export_date"] = datetime.now(timezone.utc).isoformat()
+        meta_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _update_combined_dataset(self, frame_coco: dict, target_dir: Path):
         dataset_path = target_dir / "coco_dataset.json"
@@ -351,3 +443,307 @@ class Exporter:
         summary_path.write_text(
             json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+
+    # ── Crop Distribution Analysis ──
+
+    def compute_crop_distribution(
+        self, targets: dict[str, int],
+    ) -> dict:
+        """Compute per-player per-shot-type crop counts across all annotated frames.
+
+        Returns the full crop_distribution structure ready for JSON serialization.
+        """
+        has_metadata = bool(self._frame_metadata)
+
+        # player_key → {shot_type → count}
+        player_crops: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # player_key → (name, jersey_number)
+        player_info: dict[str, tuple[str, int | None]] = {}
+
+        for frame in self.store.iter_all_frames():
+            if frame.status != FrameStatus.ANNOTATED:
+                continue
+            for box in frame.boxes:
+                # Only count home players with identity
+                if box.category not in (Category.HOME_PLAYER, Category.HOME_GK):
+                    continue
+                if box.jersey_number is None or not box.player_name:
+                    continue
+
+                key = f"{box.jersey_number:02d}_{_extract_lastname(box.player_name)}"
+                player_info[key] = (box.player_name, box.jersey_number)
+
+                if has_metadata:
+                    meta = self._frame_metadata.get(frame.original_filename, {})
+                    shot_type = _camera_angle_to_shot_type(meta.get("camera_angle", ""))
+                else:
+                    shot_type = "unknown"
+
+                player_crops[key][shot_type] += 1
+
+        # Build player entries
+        players = []
+        for key in sorted(player_crops.keys()):
+            name, number = player_info[key]
+            by_type = dict(player_crops[key])
+            total = sum(by_type.values())
+            gaps = []
+            if has_metadata:
+                for shot_type, target_count in targets.items():
+                    current = by_type.get(shot_type, 0)
+                    if current < target_count:
+                        gaps.append({
+                            "shot_type": shot_type,
+                            "current": current,
+                            "target": target_count,
+                            "deficit": target_count - current,
+                        })
+
+            players.append({
+                "name": name,
+                "jersey_number": number,
+                "crops_by_shot_type": by_type,
+                "total_crops": total,
+                "gaps": gaps,
+                "status": "gap" if gaps else "ok",
+            })
+
+        # Summary
+        players_with_gaps = [p for p in players if p["status"] == "gap"]
+        largest_gap_player = ""
+        largest_gap_type = ""
+        if players_with_gaps:
+            max_deficit = 0
+            for p in players_with_gaps:
+                for g in p["gaps"]:
+                    if g["deficit"] > max_deficit:
+                        max_deficit = g["deficit"]
+                        largest_gap_player = p["name"]
+                        largest_gap_type = g["shot_type"]
+
+        session_info = self._bundle_metadata_raw.get("session_info", {})
+        match_id = session_info.get("match_id", self._session_meta.get("source", ""))
+
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "match_id": match_id,
+            "competition": self._session_meta.get("source", ""),
+            "round": self._session_meta.get("match_round", ""),
+            "team": self._team_name,
+            "opponent": self._session_meta.get("opponent", ""),
+            "targets": targets,
+            "players": players,
+            "summary": {
+                "total_players": len(players),
+                "players_ok": len(players) - len(players_with_gaps),
+                "players_with_gaps": len(players_with_gaps),
+                "largest_gap_player": largest_gap_player,
+                "largest_gap_type": largest_gap_type,
+            },
+        }
+
+    def generate_crop_distribution(self, targets: dict[str, int]) -> dict:
+        """Compute and write crop_distribution.json. Returns the distribution data."""
+        dist = self.compute_crop_distribution(targets)
+        dist_path = self.output_folder / "crop_distribution.json"
+        dist_path.write_text(
+            json.dumps(dist, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return dist
+
+    # ── Resample Request Generation ──
+
+    def generate_resample_request(
+        self,
+        distribution: dict,
+        targets: dict[str, int],
+        thresholds: dict,
+    ) -> str | None:
+        """Generate resample_request_[match_id].json for players with data gaps.
+
+        Returns the output path, or None if no resample targets found.
+        """
+        session_info = self._bundle_metadata_raw.get("session_info", {})
+        match_id = session_info.get("match_id", self._session_meta.get("source", ""))
+        match_url = session_info.get("match_url", "")
+
+        if not self._frame_metadata:
+            return None
+
+        # Collect sequence summary from raw metadata
+        seq_summary = self._bundle_metadata_raw.get("sequence_summary", [])
+        seq_by_id: dict[str, dict] = {s["sequence_id"]: s for s in seq_summary}
+
+        # Build a map: (player_key, shot_type) → list of sequence_ids where visible
+        # First gather per-frame: which players appear in which sequence
+        # sequence_id → {player_key → count of frames}
+        seq_player_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # sequence_id → {player_key → count of non-occluded frames}
+        seq_player_visible: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+        for frame in self.store.iter_all_frames():
+            if frame.status != FrameStatus.ANNOTATED:
+                continue
+            meta = self._frame_metadata.get(frame.original_filename, {})
+            seq_id = meta.get("sequence_id")
+            if not seq_id:
+                continue
+            for box in frame.boxes:
+                if box.category not in (Category.HOME_PLAYER, Category.HOME_GK):
+                    continue
+                if box.jersey_number is None or not box.player_name:
+                    continue
+                key = f"{box.jersey_number:02d}_{_extract_lastname(box.player_name)}"
+                seq_player_counts[seq_id][key] += 1
+                if box.occlusion.value in ("visible", "partial"):
+                    seq_player_visible[seq_id][key] += 1
+
+        # For each player with gaps, find matching sequences
+        estimated_interval = thresholds.get("estimated_resample_interval", 0.3)
+        wide_ratio = thresholds.get("wide_min_player_ratio", 0.5)
+        med_min = thresholds.get("medium_min_player_frames", 1)
+        close_min = thresholds.get("closeup_min_player_frames", 1)
+        min_seq_len = thresholds.get("min_sequence_length", 3)
+
+        resample_targets = []
+
+        for player in distribution.get("players", []):
+            if player["status"] != "gap":
+                continue
+
+            gap_types = [g["shot_type"] for g in player["gaps"]]
+            key = f"{player['jersey_number']:02d}_{_extract_lastname(player['name'])}"
+
+            sequences = []
+            for seq_id, seq_info in seq_by_id.items():
+                seq_frame_count = seq_info.get("frame_count", 0)
+                if seq_frame_count < min_seq_len:
+                    continue
+
+                seq_type = seq_info.get("sequence_type", "")
+                # Map sequence_type to shot_type
+                if "wide" in seq_type:
+                    seq_shot = "wide"
+                elif "medium" in seq_type:
+                    seq_shot = "medium"
+                elif "closeup" in seq_type or "close" in seq_type:
+                    seq_shot = "closeup"
+                else:
+                    continue
+
+                if seq_shot not in gap_types:
+                    continue
+
+                player_count = seq_player_counts.get(seq_id, {}).get(key, 0)
+                player_vis = seq_player_visible.get(seq_id, {}).get(key, 0)
+
+                # Apply thresholds
+                if seq_shot == "wide":
+                    ratio = player_count / seq_frame_count if seq_frame_count else 0
+                    if ratio < wide_ratio:
+                        continue
+                elif seq_shot == "medium":
+                    if player_vis < med_min:
+                        continue
+                elif seq_shot == "closeup":
+                    if player_count < close_min:
+                        continue
+
+                # Gather visible players in this sequence
+                visible_players = []
+                for pk in seq_player_counts.get(seq_id, {}):
+                    parts = pk.split("_", 1)
+                    if len(parts) >= 2:
+                        visible_players.append(parts[1])
+
+                vt_start = seq_info.get("video_time_start", 0)
+                vt_end = seq_info.get("video_time_end", 0)
+                duration = vt_end - vt_start
+                original_count = seq_frame_count
+                expected_new = max(0, math.floor(duration / estimated_interval) - original_count)
+
+                # Determine original interval from sequence_profiles_used
+                profiles = session_info.get("sequence_profiles_used", {})
+                orig_interval = None
+                if seq_type in profiles:
+                    orig_interval = profiles[seq_type].get("interval_sec")
+
+                sequences.append({
+                    "sequence_id": seq_id,
+                    "sequence_type": seq_type,
+                    "video_time_start": vt_start,
+                    "video_time_end": vt_end,
+                    "camera_angle": seq_info.get("camera_angle", "MEDIUM" if "medium" in seq_type else "CLOSEUP" if "close" in seq_type else "WIDE_CENTER"),
+                    "original_interval_sec": orig_interval,
+                    "original_frame_count": original_count,
+                    "players_visible": visible_players,
+                    "player_frame_count": player_count,
+                    "player_frame_ratio": round(player_count / original_count, 2) if original_count else 0,
+                    "expected_new_frames": expected_new,
+                })
+
+            if sequences:
+                resample_targets.append({
+                    "target_player": {
+                        "name": player["name"],
+                        "jersey_number": player["jersey_number"],
+                        "gap_shot_types": gap_types,
+                        "current_crops": player["crops_by_shot_type"],
+                        "target_crops": targets,
+                    },
+                    "sequences": sequences,
+                })
+
+        if not resample_targets:
+            return None
+
+        # Summary stats
+        total_seqs = sum(len(t["sequences"]) for t in resample_targets)
+        total_new_frames = sum(
+            s["expected_new_frames"] for t in resample_targets for s in t["sequences"]
+        )
+        total_video_time = sum(
+            (s["video_time_end"] - s["video_time_start"])
+            for t in resample_targets for s in t["sequences"]
+        )
+        est_minutes = (total_video_time + 10 * total_seqs) / 60
+
+        request = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source_bundle": match_id,
+            "match_info": {
+                "match_id": match_id,
+                "competition": self._session_meta.get("source", ""),
+                "round": self._session_meta.get("match_round", ""),
+                "home_team": self._team_name,
+                "opponent": self._session_meta.get("opponent", ""),
+                "date": "",
+                "match_url": match_url,
+                "video_source": "footballia",
+            },
+            "generation_settings": {
+                "targets": targets,
+                "thresholds": {
+                    "wide_min_player_ratio": wide_ratio,
+                    "medium_min_player_frames": med_min,
+                    "closeup_min_player_frames": close_min,
+                    "min_sequence_length": min_seq_len,
+                },
+                "estimated_resample_interval": estimated_interval,
+            },
+            "resample_targets": resample_targets,
+            "summary": {
+                "total_players_with_gaps": len(resample_targets),
+                "total_sequences_to_resample": total_seqs,
+                "total_expected_new_frames": total_new_frames,
+                "estimated_resample_time_minutes": round(est_minutes, 1),
+            },
+        }
+
+        safe_id = match_id.replace(" ", "_").replace("/", "_")
+        filename = f"resample_request_{safe_id}.json"
+        out_path = self.output_folder / filename
+        out_path.write_text(
+            json.dumps(request, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return str(out_path)
