@@ -1,0 +1,25 @@
+# Windows-specific requirements for Football Annotation Tool
+# Install these IN ORDER on Windows to avoid DLL conflicts.
+#
+# Usage:
+#   pip install -r requirements.txt
+#   pip install -r requirements-windows.txt
+#
+# IMPORTANT: If you want AI-Assisted mode on Windows, install torch BEFORE PyQt6.
+# The app handles the DLL load order automatically at runtime, but installing
+# torch first avoids potential pip resolver issues.
+
+# --- Step 1: Install PyTorch (CPU) first ---
+# This avoids c10.dll conflicts with PyQt6 on Windows.
+# For GPU support, visit https://pytorch.org/get-started/locally/ and use the
+# appropriate command for your CUDA version instead of the line below.
+torch>=2.0.0
+torchvision>=0.15.0
+
+# --- Step 2: Then install AI dependencies ---
+ultralytics>=8.0.0
+
+# --- Optional: Roboflow (for football-specific models) ---
+# Only needed if you want to use RF-DETR or football-trained YOLO models.
+# Requires a free Roboflow API key.
+# roboflow>=1.0.0

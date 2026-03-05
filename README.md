@@ -91,6 +91,8 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 
 ## Quick Start
 
+### macOS / Linux
+
 ```bash
 # Clone and install
 git clone https://github.com/Segundo-Volante/football-annotation-tool.git
@@ -106,6 +108,28 @@ python main.py
 # Run tests
 python -m pytest tests/ -v
 ```
+
+### Windows
+
+```bash
+# Clone and install
+git clone https://github.com/Segundo-Volante/football-annotation-tool.git
+cd football-annotation-tool
+pip install -r requirements.txt
+
+# Optional: enable AI-assisted annotation mode on Windows
+# IMPORTANT: Install torch BEFORE PyQt6 to avoid c10.dll conflicts.
+# Use requirements-windows.txt which handles the correct install order:
+pip install -r requirements-windows.txt
+
+# Run
+python main.py
+```
+
+> **Windows Notes:**
+> - If the AI-Assisted radio button is greyed out, it means `torch` and `ultralytics` are not installed or failed to load. Run `pip install -r requirements-windows.txt` to fix this.
+> - The app automatically handles Windows high-DPI scaling, UTF-8 encoding, and UI theme adjustments.
+> - Do **not** use `requirements-ai.txt` directly on Windows — use `requirements-windows.txt` instead, which installs the same packages in the correct order to avoid DLL conflicts.
 
 On first launch, the **setup wizard** guides you through team configuration. After that, the **session dialog** opens for each annotation session.
 
@@ -580,7 +604,8 @@ football-annotation-tool/
 ├── TUTORIAL.md             # Full usage guide
 ├── TUTORIAL.pdf            # PDF version of the tutorial
 ├── requirements.txt        # Base dependencies (PyQt6, OpenCV)
-└── requirements-ai.txt     # Optional AI dependencies (ultralytics, torch)
+├── requirements-ai.txt     # Optional AI dependencies — macOS/Linux (ultralytics, torch)
+└── requirements-windows.txt # Optional AI dependencies — Windows (correct DLL load order)
 ```
 
 </details>
