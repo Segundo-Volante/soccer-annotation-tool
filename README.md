@@ -4,7 +4,7 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.5+-green)
-![Tests](https://img.shields.io/badge/Tests-280_passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-369_passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 
@@ -48,6 +48,8 @@ A keyboard-driven PyQt6 desktop application for annotating football broadcast fr
 - Player roster auto-fill from CSV (type jersey number, name fills automatically)
 - Squad Sheet panel with click-to-assign: select a box, click a player row to assign instantly
 - Formation View: tactical formation overlay arranges home team players by position (4-4-2, 4-3-3, etc.)
+- Formation Editor: 3-step wizard to set up any formation when squad.json has missing positions -- choose defenders/strikers, place midfielders on a visual pitch grid, then assign players to slots
+- Away team formation support: render opponent in tactical formation rows when Away toggle is checked
 - SquadList folder support: place player headshot images for quick visual identification
 - Hover-to-enlarge player photos in the Squad Sheet for easy recognition
 - Collapsible keyboard shortcuts bar in the stats area (toggle with "? Shortcuts" button)
@@ -530,6 +532,7 @@ football-annotation-tool/
 │   ├── model_manager.py    # AI model manager (YOLO/RT-DETR, optional)
 │   ├── roster_manager.py   # CSV roster loader + player lookup
 │   ├── formation_utils.py  # Formation parsing + player-to-position mapping
+│   ├── formation_editor.py # Formation editor logic (position generation, validation, auto-fill)
 │   ├── project_config.py   # Project configuration loader (project.json)
 │   ├── session_stats.py    # Real-time session speed/ETA tracking
 │   ├── collaboration.py    # Collaboration workflow manager
@@ -540,6 +543,7 @@ football-annotation-tool/
 │   ├── metadata_bar.py     # Tab+Number metadata system
 │   ├── annotation_panel.py # Box list panel
 │   ├── squad_panel.py      # Squad Sheet with List View + Formation View tabs
+│   ├── formation_editor_dialog.py # 3-step formation editor wizard dialog
 │   ├── filmstrip.py        # Thumbnail sidebar
 │   ├── session_dialog.py   # Session configuration dialog
 │   ├── setup_wizard.py     # First-run setup wizard
@@ -571,7 +575,7 @@ football-annotation-tool/
 │       ├── pt.json             # Portuguese
 │       ├── fr.json             # French
 │       └── es.json             # Spanish
-├── tests/                  # 177 tests (pytest)
+├── tests/                  # 369 tests (pytest)
 ├── TUTORIAL.md             # Full usage guide
 ├── TUTORIAL.pdf            # PDF version of the tutorial
 ├── requirements.txt        # Base dependencies (PyQt6, OpenCV)
@@ -607,3 +611,6 @@ See [TUTORIAL.md](TUTORIAL.md) for the full usage guide, or open [TUTORIAL.pdf](
 - **Annotation store enhancements** — Added `delete_frame_annotation()` method for safe removal of per-frame JSON annotation files.
 - **Canvas improvements** — Enhanced box drawing and selection interactions with better visual feedback.
 - **Annotation panel updates** — Improved box list display with better category indicators and interaction patterns.
+- **Formation Editor** — 3-step wizard dialog for setting up formations when squad.json has missing positions. Step 1: choose defender/striker counts (midfielders auto-calculated). Step 2: place midfielders on a visual pitch grid with 7 position circles (CDM, CM, LM, RM, CAM, LW, RW). Step 3: assign players to formation slots with drag-and-drop. Supports any valid football formation through depth-based midfield grouping. Auto-fills from existing position data when available.
+- **Away team formation rendering** — Away team now renders in tactical formation rows (same as home) when formation data is available and the Away toggle is checked. Previously displayed as a flat grid only.
+- **save_squad_json** — New function to persist formation and position data back to squad.json while preserving extra fields like `appeared` and away team data.

@@ -447,6 +447,7 @@ class FormationView(QWidget):
 
     player_clicked = pyqtSignal(str, int, str, str)
     quick_assign_clicked = pyqtSignal(str)
+    edit_formation_requested = pyqtSignal(str)  # team_side ("home" or "away")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -454,6 +455,7 @@ class FormationView(QWidget):
         self._away_nodes: list[FormationNode] = []
         self._squad_data: Optional[SquadData] = None
         self._session_folder: Optional[str] = None
+        self._show_opponent: bool = True
         self._build_ui()
 
     def _build_ui(self):
@@ -481,10 +483,12 @@ class FormationView(QWidget):
         self._scroll.setWidget(self._content)
         outer.addWidget(self._scroll, stretch=1)
 
-    def load_formation(self, squad_data: SquadData, session_folder: str):
+    def load_formation(self, squad_data: SquadData, session_folder: str,
+                       show_opponent: bool = True):
         """Build the formation view from squad data."""
         self._squad_data = squad_data
         self._session_folder = session_folder
+        self._show_opponent = show_opponent
         self._formation_nodes.clear()
         self._away_nodes.clear()
 
@@ -503,17 +507,25 @@ class FormationView(QWidget):
             squad_data.home_team,
         )
 
+        available_width = 248  # 260px panel - 2×4px margins - scroll bar
+
         if not formation_rows:
-            lbl = QLabel("No formation data available")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(f"color: {_MUTED}; font-size: 11px; padding: 20px;")
-            self._content_layout.addWidget(lbl)
+            # Show setup prompt with button
+            self._add_setup_prompt("home", squad_data.home_team, available_width)
+
+            # Away team section (if opponent visible and has players)
+            if show_opponent and squad_data.away_team.players:
+                self._add_separator()
+                self._add_away_section(squad_data, available_width)
+
+            # Quick Assign buttons
+            self._add_separator()
+            self._add_quick_assign_section()
             self._content_layout.addStretch()
             return
 
         # ── Dynamic node width ──
         max_row_size = max(len(row) for row in formation_rows)
-        available_width = 248  # 260px panel - 2×4px margins - scroll bar
         if max_row_size > 1:
             node_width = min(
                 _NODE_DEFAULT_WIDTH,
@@ -522,14 +534,32 @@ class FormationView(QWidget):
         else:
             node_width = _NODE_DEFAULT_WIDTH
 
-        # ── Formation header ──
+        # ── Formation header with Edit button ──
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+
         name = squad_data.home_team.name or "Home Team"
         header = QLabel(f"\u2014\u2014 {name} ({squad_data.home_team.formation}) \u2014\u2014")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet(
             f"color: {_HOME_COLOR}; font-weight: bold; font-size: 11px; padding: 4px 0;"
         )
-        self._content_layout.addWidget(header)
+        header_layout.addWidget(header, stretch=1)
+
+        edit_btn = QPushButton("Edit")
+        edit_btn.setFixedSize(36, 20)
+        edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        edit_btn.setStyleSheet(
+            f"QPushButton {{ background: {_CARD}; color: {_MUTED}; font-size: 9px;"
+            f" border: 1px solid {_BORDER}; border-radius: 3px; padding: 0; }}"
+            f"QPushButton:hover {{ color: {_ACCENT}; border-color: {_ACCENT}; }}"
+        )
+        edit_btn.clicked.connect(lambda: self.edit_formation_requested.emit("home"))
+        header_layout.addWidget(edit_btn)
+
+        self._content_layout.addWidget(header_widget)
 
         # ── Formation rows (reversed: forwards at top, GK at bottom) ──
         for row_players in reversed(formation_rows):
@@ -574,31 +604,10 @@ class FormationView(QWidget):
 
             self._content_layout.addWidget(sub_widget)
 
-        # ── Away team compact list ──
-        if squad_data.away_team.players:
+        # ── Away team section ──
+        if show_opponent and squad_data.away_team.players:
             self._add_separator()
-            away_name = squad_data.away_team.name or "Away Team"
-            away_header = QLabel(f"\u2014\u2014 {away_name} \u2014\u2014")
-            away_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            away_header.setStyleSheet(
-                f"color: {_AWAY_COLOR}; font-weight: bold; font-size: 10px; padding: 2px 0;"
-            )
-            self._content_layout.addWidget(away_header)
-
-            away_widget = QWidget()
-            away_grid = QGridLayout(away_widget)
-            away_grid.setSpacing(4)
-            away_grid.setContentsMargins(0, 0, 0, 0)
-            away_cols = max(3, available_width // (node_width + 4))
-
-            for i, player in enumerate(squad_data.away_team.players):
-                row_idx, col_idx = divmod(i, away_cols)
-                node = FormationNode(player, "away", _AWAY_COLOR, node_width=node_width)
-                node.clicked.connect(self._on_node_clicked)
-                self._away_nodes.append(node)
-                away_grid.addWidget(node, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter)
-
-            self._content_layout.addWidget(away_widget)
+            self._add_away_section(squad_data, available_width)
 
         # ── Quick Assign buttons ──
         self._add_separator()
@@ -608,6 +617,176 @@ class FormationView(QWidget):
 
         # Load reference crops
         self._load_reference_crops()
+
+    def _add_setup_prompt(self, side: str, team: TeamSquad, available_width: int):
+        """Show a 'Set Up Formation' prompt for a team with no formation."""
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container_layout.setSpacing(8)
+
+        team_name = team.name or (side.title() + " Team")
+        name_label = QLabel(f"\u2014\u2014 {team_name} \u2014\u2014")
+        name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        color = _HOME_COLOR if side == "home" else _AWAY_COLOR
+        name_label.setStyleSheet(
+            f"color: {color}; font-weight: bold; font-size: 11px; padding: 4px 0;"
+        )
+        container_layout.addWidget(name_label)
+
+        # Check why formation is missing
+        has_formation_str = bool(team.formation.strip() if team.formation else False)
+        has_positions = any(p.position for p in team.players)
+
+        if not has_formation_str and not has_positions:
+            reason = "No formation or positions configured."
+        elif has_formation_str and not has_positions:
+            reason = "Formation set but players have no positions."
+        else:
+            reason = "Formation data incomplete."
+
+        reason_label = QLabel(reason)
+        reason_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        reason_label.setStyleSheet(f"color: {_MUTED}; font-size: 10px;")
+        reason_label.setWordWrap(True)
+        container_layout.addWidget(reason_label)
+
+        setup_btn = QPushButton("  Set Up Formation  ")
+        setup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        setup_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {_ACCENT}; color: #FFFFFF;"
+            f" padding: 8px 16px; border-radius: 4px; font-weight: bold;"
+            f" font-size: 11px; border: none; min-height: 20px; }}"
+            f"QPushButton:hover {{ background-color: #FFB84D; }}"
+        )
+        setup_btn.clicked.connect(lambda: self.edit_formation_requested.emit(side))
+        container_layout.addWidget(setup_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self._content_layout.addWidget(container)
+
+    def _add_away_section(self, squad_data: SquadData, available_width: int):
+        """Add the away team section — in formation if available, grid otherwise."""
+        from backend.formation_utils import assign_players_to_formation
+
+        away_name = squad_data.away_team.name or "Away Team"
+
+        # Try to render away team in formation
+        away_rows, away_subs = assign_players_to_formation(squad_data.away_team)
+
+        if away_rows:
+            # Away team has formation — render in tactical rows
+            max_row_size = max(len(row) for row in away_rows)
+            if max_row_size > 1:
+                node_width = min(
+                    _NODE_DEFAULT_WIDTH,
+                    (available_width - (max_row_size - 1) * 4) // max_row_size,
+                )
+            else:
+                node_width = _NODE_DEFAULT_WIDTH
+
+            # Header with Edit button
+            header_widget = QWidget()
+            header_layout = QHBoxLayout(header_widget)
+            header_layout.setContentsMargins(0, 0, 0, 0)
+            header_layout.setSpacing(4)
+
+            header = QLabel(
+                f"\u2014\u2014 {away_name} ({squad_data.away_team.formation}) \u2014\u2014"
+            )
+            header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            header.setStyleSheet(
+                f"color: {_AWAY_COLOR}; font-weight: bold; font-size: 10px; padding: 2px 0;"
+            )
+            header_layout.addWidget(header, stretch=1)
+
+            edit_btn = QPushButton("Edit")
+            edit_btn.setFixedSize(36, 20)
+            edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            edit_btn.setStyleSheet(
+                f"QPushButton {{ background: {_CARD}; color: {_MUTED}; font-size: 9px;"
+                f" border: 1px solid {_BORDER}; border-radius: 3px; padding: 0; }}"
+                f"QPushButton:hover {{ color: {_ACCENT}; border-color: {_ACCENT}; }}"
+            )
+            edit_btn.clicked.connect(lambda: self.edit_formation_requested.emit("away"))
+            header_layout.addWidget(edit_btn)
+
+            self._content_layout.addWidget(header_widget)
+
+            # Formation rows (reversed: forwards top, GK bottom)
+            for row_players in reversed(away_rows):
+                if not row_players:
+                    continue
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 2, 0, 2)
+                row_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                row_layout.setSpacing(4)
+
+                for player in row_players:
+                    node = FormationNode(player, "away", _AWAY_COLOR, node_width=node_width)
+                    node.clicked.connect(self._on_node_clicked)
+                    self._away_nodes.append(node)
+                    row_layout.addWidget(node)
+
+                self._content_layout.addWidget(row_widget)
+
+            # Away substitutes
+            if away_subs:
+                sub_header = QLabel("\u2014\u2014 Away Subs \u2014\u2014")
+                sub_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                sub_header.setStyleSheet(
+                    f"color: {_MUTED}; font-weight: bold; font-size: 9px; padding: 2px 0;"
+                )
+                self._content_layout.addWidget(sub_header)
+
+                sub_widget = QWidget()
+                cols = max(3, available_width // (node_width + 4))
+                sub_grid = QGridLayout(sub_widget)
+                sub_grid.setSpacing(4)
+                sub_grid.setContentsMargins(0, 0, 0, 0)
+
+                for i, player in enumerate(away_subs):
+                    row_idx, col_idx = divmod(i, cols)
+                    node = FormationNode(player, "away", _AWAY_COLOR, node_width=node_width)
+                    node.clicked.connect(self._on_node_clicked)
+                    self._away_nodes.append(node)
+                    sub_grid.addWidget(node, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter)
+
+                self._content_layout.addWidget(sub_widget)
+
+        elif squad_data.away_team.players:
+            # No away formation — show setup prompt or flat grid
+            has_formation_str = bool(
+                squad_data.away_team.formation.strip()
+                if squad_data.away_team.formation else False
+            )
+            if not has_formation_str:
+                # Show setup button for away team
+                self._add_setup_prompt("away", squad_data.away_team, available_width)
+            else:
+                # Has formation string but assignment failed — flat grid fallback
+                away_header = QLabel(f"\u2014\u2014 {away_name} \u2014\u2014")
+                away_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                away_header.setStyleSheet(
+                    f"color: {_AWAY_COLOR}; font-weight: bold; font-size: 10px; padding: 2px 0;"
+                )
+                self._content_layout.addWidget(away_header)
+
+                node_width = _NODE_DEFAULT_WIDTH
+                away_widget = QWidget()
+                away_grid = QGridLayout(away_widget)
+                away_grid.setSpacing(4)
+                away_grid.setContentsMargins(0, 0, 0, 0)
+                away_cols = max(3, available_width // (node_width + 4))
+
+                for i, player in enumerate(squad_data.away_team.players):
+                    row_idx, col_idx = divmod(i, away_cols)
+                    node = FormationNode(player, "away", _AWAY_COLOR, node_width=node_width)
+                    node.clicked.connect(self._on_node_clicked)
+                    self._away_nodes.append(node)
+                    away_grid.addWidget(node, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter)
+
+                self._content_layout.addWidget(away_widget)
 
     def _on_node_clicked(self, side: str, jersey: int, name: str, position: str):
         self.player_clicked.emit(side, jersey, name, position)
@@ -726,6 +905,8 @@ class SquadPanel(QWidget):
     player_clicked = pyqtSignal(str, int, str, str)
     # Emitted when a quick-assign button is clicked: (category_name,)
     quick_assign_clicked = pyqtSignal(str)
+    # Emitted when user wants to edit formation: (team_side,)
+    edit_formation_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -841,12 +1022,15 @@ class SquadPanel(QWidget):
         self._formation_view.quick_assign_clicked.connect(
             lambda key: self.quick_assign_clicked.emit(key)
         )
+        self._formation_view.edit_formation_requested.connect(
+            lambda side: self.edit_formation_requested.emit(side)
+        )
         self._tab_widget.addTab(self._formation_view, "Formation")
 
-        # Formation tab disabled by default
+        # Formation tab enabled when squad is loaded (shows setup prompt if no formation)
         self._tab_widget.setTabEnabled(1, False)
         self._tab_widget.setTabToolTip(
-            1, "Add a formation to squad.json to enable this view",
+            1, "Load squad data to enable this view",
         )
 
         outer.addWidget(self._tab_widget, stretch=1)
@@ -874,27 +1058,41 @@ class SquadPanel(QWidget):
 
         self._rebuild_player_list()
 
-        # Formation view
-        has_formation = bool(
-            squad_data.home_team.formation.strip()
-            if squad_data.home_team.formation else False
-        )
-        self._tab_widget.setTabEnabled(1, has_formation)
-        if has_formation:
-            self._formation_view.load_formation(squad_data, session_folder)
-            self._tab_widget.setTabToolTip(
-                1, f"Formation: {squad_data.home_team.formation}",
+        # Formation view — always enabled when squad data is loaded
+        if squad_data.is_loaded:
+            self._tab_widget.setTabEnabled(1, True)
+            self._formation_view.load_formation(
+                squad_data, session_folder, show_opponent=self._show_opponent,
             )
+            has_formation = bool(
+                squad_data.home_team.formation.strip()
+                if squad_data.home_team.formation else False
+            )
+            if has_formation:
+                self._tab_widget.setTabToolTip(
+                    1, f"Formation: {squad_data.home_team.formation}",
+                )
+            else:
+                self._tab_widget.setTabToolTip(
+                    1, "Click to set up formation",
+                )
         else:
+            self._tab_widget.setTabEnabled(1, False)
             self._tab_widget.setTabToolTip(
-                1, "Add a formation to squad.json to enable this view",
+                1, "Load squad data to enable this view",
             )
 
     def _on_opponent_toggled(self, checked: bool):
-        """Show or hide the away team section in the list view."""
+        """Show or hide the away team section in both list view and formation view."""
         self._show_opponent = checked
         for w in self._away_widgets:
             w.setVisible(checked)
+        # Also refresh formation view to show/hide away team
+        if self._squad_data and self._squad_data.is_loaded:
+            self._formation_view.load_formation(
+                self._squad_data, self._session_folder,
+                show_opponent=checked,
+            )
 
     def _rebuild_player_list(self):
         """Clear and rebuild the player row list from squad data."""

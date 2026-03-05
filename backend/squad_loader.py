@@ -298,6 +298,80 @@ def generate_squad_json(
     return out
 
 
+def save_squad_json(
+    path: str | Path,
+    squad_data: "SquadData",
+) -> Path:
+    """Save squad data back to a squad.json file.
+
+    Reads the existing file first to preserve any extra fields (e.g. ``appeared``),
+    then updates the formation string, player positions, and player list.
+
+    Args:
+        path: Path to the squad.json file to write.
+        squad_data: The SquadData to persist.
+
+    Returns:
+        Path to the written file.
+    """
+    p = Path(path)
+
+    # Read existing data to preserve extra fields
+    existing: dict = {}
+    if p.exists():
+        try:
+            existing = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Build home team data, preserving per-player extra fields
+    home_obj = existing.get("home_team", {})
+    home_obj["name"] = squad_data.home_team.name
+    home_obj["formation"] = squad_data.home_team.formation
+
+    # Index existing player data by jersey number to preserve extra fields
+    existing_home_players = {
+        p_data.get("number"): p_data
+        for p_data in home_obj.get("players", [])
+    }
+    home_players: list[dict] = []
+    for player in squad_data.home_team.players:
+        p_data = dict(existing_home_players.get(player.jersey_number, {}))
+        p_data["number"] = player.jersey_number
+        p_data["name"] = player.name
+        p_data["position"] = player.position
+        home_players.append(p_data)
+    home_obj["players"] = home_players
+    existing["home_team"] = home_obj
+
+    # Build away team data if present
+    if squad_data.away_team.players:
+        away_obj = existing.get("away_team", {})
+        away_obj["name"] = squad_data.away_team.name
+        if squad_data.away_team.formation:
+            away_obj["formation"] = squad_data.away_team.formation
+
+        existing_away_players = {
+            p_data.get("number"): p_data
+            for p_data in away_obj.get("players", [])
+        }
+        away_players: list[dict] = []
+        for player in squad_data.away_team.players:
+            p_data = dict(existing_away_players.get(player.jersey_number, {}))
+            p_data["number"] = player.jersey_number
+            p_data["name"] = player.name
+            p_data["position"] = player.position
+            away_players.append(p_data)
+        away_obj["players"] = away_players
+        existing["away_team"] = away_obj
+
+    p.write_text(
+        json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return p
+
+
 def find_squad_json(session_folder: str | Path) -> Optional[Path]:
     """Look for squad.json in the session folder or parent."""
     folder = Path(session_folder)

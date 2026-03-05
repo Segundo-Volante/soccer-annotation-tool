@@ -331,6 +331,7 @@ class MainWindow(QMainWindow):
         # Squad panel click-to-assign signals
         self._annotation_panel.squad_panel.player_clicked.connect(self._on_squad_player_clicked)
         self._annotation_panel.squad_panel.quick_assign_clicked.connect(self._on_squad_quick_assign)
+        self._annotation_panel.squad_panel.edit_formation_requested.connect(self._on_edit_formation_requested)
         # Annotation inheritance signals
         self._annotation_panel.accept_all_inherited.connect(self._accept_all_inherited)
         self._annotation_panel.clear_inherited.connect(self._clear_inherited)
@@ -1941,6 +1942,49 @@ class MainWindow(QMainWindow):
 
         # Auto-advance
         self._select_next_unassigned()
+
+    def _on_edit_formation_requested(self, team_side: str):
+        """Open the Formation Editor dialog for the specified team."""
+        if not self._squad_data:
+            return
+
+        from backend.squad_loader import find_squad_json
+        squad_json_path = find_squad_json(self._folder_path) if self._folder_path else None
+        if not squad_json_path:
+            # If no squad.json exists, create path in session folder
+            if self._folder_path:
+                squad_json_path = Path(self._folder_path) / "squad.json"
+            else:
+                self._toast.show_message("No session folder available", "warning")
+                return
+
+        from frontend.formation_editor_dialog import FormationEditorDialog
+        dialog = FormationEditorDialog(
+            squad_data=self._squad_data,
+            squad_json_path=str(squad_json_path),
+            team_side=team_side,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Reload squad data from the saved file
+            from backend.squad_loader import load_squad_json
+            updated_squad = load_squad_json(str(squad_json_path))
+            if updated_squad:
+                # Preserve headshot images from current session
+                updated_squad.headshot_images = self._squad_data.headshot_images
+                self._squad_data = updated_squad
+
+                # Refresh the squad panel
+                self._annotation_panel.squad_panel.load_squad(
+                    self._squad_data,
+                    self._folder_path,
+                    team_mode=self._team_mode,
+                )
+
+                self._toast.show_message(
+                    f"{team_side.title()} formation saved", "success",
+                )
 
     def _try_save_reference_crop(self, box: BoundingBox, side: str, jersey: int):
         """Save a reference crop for a player if possible."""

@@ -51,6 +51,41 @@ SUPPORTED_FORMATIONS = [
 ]
 
 
+def derive_formation_string(
+    def_count: int,
+    mid_positions: list[str],
+    str_count: int,
+) -> str:
+    """Derive a formation string from defender count, midfielder positions, and striker count.
+
+    Groups midfielders by ``_DEPTH_ORDER`` depth level; each non-empty group
+    becomes one formation segment between the defense and forward segments.
+
+    Examples::
+
+        derive_formation_string(4, ["CDM","CDM","LW","CAM","RW"], 1) → "4-2-3-1"
+        derive_formation_string(4, ["LM","CM","CM","RM"], 2)         → "4-4-2"
+        derive_formation_string(4, ["CDM","LM","CM","CM","RM"], 2)   → "4-1-4-2"
+        derive_formation_string(3, ["CDM","CM","CM","CAM","LW","RW"], 1) → "3-1-2-3-1"
+
+    Returns:
+        Formation string like ``"4-2-3-1"``.
+    """
+    # Group midfielders by depth
+    depth_groups: dict[int, list[str]] = {}
+    for pos in mid_positions:
+        depth = _DEPTH_ORDER.get(pos.upper(), 1)  # default to CM depth
+        depth_groups.setdefault(depth, []).append(pos)
+
+    # Build segments: defense + midfield depth groups (sorted) + forward
+    segments: list[int] = [def_count]
+    for depth_key in sorted(depth_groups.keys()):
+        segments.append(len(depth_groups[depth_key]))
+    segments.append(str_count)
+
+    return "-".join(str(s) for s in segments)
+
+
 def parse_formation(formation_str: str) -> list[int]:
     """Parse a formation string like ``"4-4-2"`` into row sizes.
 
